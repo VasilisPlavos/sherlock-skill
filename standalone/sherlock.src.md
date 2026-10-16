@@ -58,7 +58,11 @@ printf '%s\n' thisisbillgates billgates bill.gates bill_gates williamgates bgate
 
 ## 3. Bulk existence check
 
-Needs `$PY`; skipped when the user chose to continue without Python. Write the checker once:
+Needs `$PY`; skipped when the user chose to continue without Python.
+
+Each file this guide writes is followed by a check line: it proves the file is exactly the code this guide shipped with (SHA-256). If it prints `error: ... was not written verbatim`, write that file again exactly as shown and rerun the snippet. Without Python, skip the check lines.
+
+Write the checker once:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")

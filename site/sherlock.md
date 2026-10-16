@@ -58,7 +58,11 @@ printf '%s\n' thisisbillgates billgates bill.gates bill_gates williamgates bgate
 
 ## 3. Bulk existence check
 
-Needs `$PY`; skipped when the user chose to continue without Python. Write the checker once:
+Needs `$PY`; skipped when the user chose to continue without Python.
+
+Each file this guide writes is followed by a check line: it proves the file is exactly the code this guide shipped with (SHA-256). If it prints `error: ... was not written verbatim`, write that file again exactly as shown and rerun the snippet. Without Python, skip the check lines.
+
+Write the checker once:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
@@ -420,6 +424,7 @@ def main():
 if __name__ == "__main__":
     main()
 EOF
+$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/check.py" d0c3adad7cce567b2db5aae5bd85481e940dbb934f7476d51dac949a1a20e647
 ```
 
 Run it. It takes several minutes for ~15 variants — longer than many shell tools' default timeout — so run it **in the background** and read progress from the log. **Never kill it** (no `kill`, `taskkill` or tool-side stop): wait for it to finish. If the user wants to stop early, they press Ctrl-C themselves; the finished rows are still written.
@@ -684,6 +689,7 @@ main.append(card('Methodology', el('dl', {},
 </body>
 </html>
 EOF
+$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/template.html" bb11214c600ec3cc9adf18c746d994def10f299d50e4d40435068895fe05bf5b
 
 cat > "$WORK/render_report.py" <<'EOF'
 """Render <OUT>/report.json into <OUT>/report.html using the report template. Python stdlib only."""
@@ -847,6 +853,7 @@ def main(argv=None):
 if __name__ == "__main__":
     sys.exit(main())
 EOF
+$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/render_report.py" d07f1d718f56918b03f7d3c05c76aebf4df2bd23168aff5426aa6a21ffe05879
 $PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
 ```
 
