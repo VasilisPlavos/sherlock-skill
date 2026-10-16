@@ -61,6 +61,21 @@ class RandomLike(unittest.TestCase):
         self.assertIsNone(check.random_like("bill", {"url": "https://x.test/{}", "regexCheck": r"^\d+$"}))
 
 
+class PlanCalibration(unittest.TestCase):
+    def test_skips_a_username_the_site_cannot_mimic(self):  # 'abcdefghij.klm' is too long for the regex
+        sites = {"S": {"url": "https://x.test/{}", "regexCheck": "^[a-z.]{1,12}$"}}
+        plan = check.plan_calibration(["abcdefghij.klm", "bill.gates"], sites)
+        self.assertRegex(plan[("S", ".")], r"^[a-z]{4}\.[a-z]{5}$")
+
+    def test_one_entry_per_site_and_shape(self):
+        sites = {"A": {"url": "https://a.test/{}"}, "B": {"url": "https://b.test/{}"}}
+        plan = check.plan_calibration(["alice", "bob", "bill.gates"], sites)
+        self.assertEqual(set(plan), {("A", ""), ("A", "."), ("B", ""), ("B", ".")})
+
+    def test_impossible_shape_is_absent(self):
+        self.assertEqual(check.plan_calibration(["bill"], {"S": {"url": "https://x.test/{}", "regexCheck": r"^\d+$"}}), {})
+
+
 def done(row):
     f = Future()
     f.set_result(row)

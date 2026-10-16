@@ -184,6 +184,18 @@ def random_like(user, info, keep_first=False):
     return None
 
 
+def plan_calibration(users, sites):
+    """(site, shape) -> random username to probe. Per pair, the first username of that shape the site can
+    mimic: one it cannot (e.g. too long for its regexCheck) must not leave the shape uncalibrated."""
+    plan = {}
+    for s, info in sites.items():
+        for u in users:
+            key = (s, shape(u))
+            if key not in plan and (ru := random_like(u, info)):
+                plan[key] = ru
+    return plan
+
+
 def track(jobs, rows, calibration=(), on_claimed=None):
     """Collect results as they finish: potential hits live, progress + ETA every 5 s (stderr).
     Progress counts calibration requests too. Waits in 1 s slices so Ctrl-C / SIGTERM interrupts promptly.
@@ -290,18 +302,12 @@ def main():
     if os.path.isdir(os.path.join(out_dir, ".work")):  # skill/standalone layout: keep the start time for the report
         init_workdir(out_dir)
     sites = load_sites(args)
-    shapes = {}
-    for u in users:
-        shapes.setdefault(shape(u), u)
 
     signal.signal(signal.SIGTERM, interrupt)  # POSIX: a terminated run still writes what it has
     pool = ThreadPoolExecutor(args.workers)
     # Calibration: a site that "finds" a random username of the same shape cannot be trusted.
-    calib = {}
-    for s, i in sites.items():
-        for sh, u in shapes.items():
-            if (ru := random_like(u, i)):
-                calib[(s, sh)] = pool.submit(probe, s, i, ru, args)
+    calib = {key: pool.submit(probe, key[0], sites[key[0]], ru, args)
+             for key, ru in plan_calibration(users, sites).items()}
     jobs = [pool.submit(probe, s, i, u, args) for u in users for s, i in sites.items()]
     print(f"check.py {__version__}: {len(users)} usernames x {len(sites)} sites "
           f"(+{len(calib)} calibration requests)", file=sys.stderr)

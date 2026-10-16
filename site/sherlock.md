@@ -253,6 +253,18 @@ def random_like(user, info, keep_first=False):
     return None
 
 
+def plan_calibration(users, sites):
+    """(site, shape) -> random username to probe. Per pair, the first username of that shape the site can
+    mimic: one it cannot (e.g. too long for its regexCheck) must not leave the shape uncalibrated."""
+    plan = {}
+    for s, info in sites.items():
+        for u in users:
+            key = (s, shape(u))
+            if key not in plan and (ru := random_like(u, info)):
+                plan[key] = ru
+    return plan
+
+
 def track(jobs, rows, calibration=(), on_claimed=None):
     """Collect results as they finish: potential hits live, progress + ETA every 5 s (stderr).
     Progress counts calibration requests too. Waits in 1 s slices so Ctrl-C / SIGTERM interrupts promptly.
@@ -359,18 +371,12 @@ def main():
     if os.path.isdir(os.path.join(out_dir, ".work")):  # skill/standalone layout: keep the start time for the report
         init_workdir(out_dir)
     sites = load_sites(args)
-    shapes = {}
-    for u in users:
-        shapes.setdefault(shape(u), u)
 
     signal.signal(signal.SIGTERM, interrupt)  # POSIX: a terminated run still writes what it has
     pool = ThreadPoolExecutor(args.workers)
     # Calibration: a site that "finds" a random username of the same shape cannot be trusted.
-    calib = {}
-    for s, i in sites.items():
-        for sh, u in shapes.items():
-            if (ru := random_like(u, i)):
-                calib[(s, sh)] = pool.submit(probe, s, i, ru, args)
+    calib = {key: pool.submit(probe, key[0], sites[key[0]], ru, args)
+             for key, ru in plan_calibration(users, sites).items()}
     jobs = [pool.submit(probe, s, i, u, args) for u in users for s, i in sites.items()]
     print(f"check.py {__version__}: {len(users)} usernames x {len(sites)} sites "
           f"(+{len(calib)} calibration requests)", file=sys.stderr)
@@ -442,7 +448,7 @@ def main():
 if __name__ == "__main__":
     main()
 EOF
-$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/check.py" c8e5040c9a0b51e37ebb9932c2a39060eba57aef3ac21cda0b2311d2e068a94d
+$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/check.py" ee6a2835b178de550465e52685eb7a40bf844f85711d7c6d6ee0aa8e0183d2a4
 ```
 
 Run it. It takes several minutes for ~15 variants — longer than many shell tools' default timeout — so run it **in the background** and read progress from the log. **Never kill it** (no `kill`, `taskkill` or tool-side stop): wait for it to finish. If the user wants to stop early, they press Ctrl-C themselves; the finished rows are still written.
