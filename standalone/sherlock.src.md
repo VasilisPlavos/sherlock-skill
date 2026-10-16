@@ -24,12 +24,13 @@ Set the output folder (short ASCII slug of the subject) and find a working Pytho
 OUT="osint/bill-gates"; WORK="$OUT/.work"; mkdir -p "$WORK"
 date +%s > "$WORK/started"   # for the total duration in the report
 
-PY=""
+PY=""; OLD=""
 for c in python3 python "py -3"; do
-  $c -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1 && { PY="$c"; break; }
+  if $c -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then PY="$c"; break; fi
+  [ -z "$OLD" ] && v=$($c -c 'import platform; print(platform.python_version())' 2>/dev/null) && OLD="$c = Python $v"
 done
 echo "$PY" > "$WORK/py"
-[ -n "$PY" ] && $PY --version || echo "No Python 3.9+ found"
+[ -n "$PY" ] && $PY --version || echo "No Python 3.10+ found${OLD:+ (found: $OLD)}"
 ```
 
 **Shell variables do not survive between tool calls.** Every later snippet therefore starts by restoring them — keep that first line, and run every snippet from the same directory (paths are relative to it). `$PY` stays unquoted so `py -3` works.
@@ -38,6 +39,8 @@ No Python → never install on your own. Offer the user:
 
 - **Install it** (their approval): Windows `winget install -e --id Python.Python.3.12` (per-user, no admin; open a new shell afterwards), Debian `apt-get install -y python3`, macOS `brew install python`.
 - **Continue without Python**: skip step 3 (no bulk check); find accounts via web search and the browser checks in step 4; build the report by hand as described in step 6. The report states that the bulk check was not run.
+
+Only an older Python (below 3.10) → tell the user which one, and offer: install a current Python (their approval); try the old one anyway; adapt a copy of the script to run on it (the SHA-256 check in step 3 then reports a mismatch, which is expected); or continue without the bulk check. To use the old one, write its command to `"$WORK/py"` (e.g. `echo python3 > "$WORK/py"`).
 
 ## 2. Username variants (gate)
 
@@ -58,7 +61,11 @@ printf '%s\n' thisisbillgates billgates bill.gates bill_gates williamgates bgate
 
 ## 3. Bulk existence check
 
-Needs `$PY`; skipped when the user chose to continue without Python. Write the checker once:
+Needs `$PY`; skipped when the user chose to continue without Python.
+
+Each file this guide writes is followed by a check line: it proves the file is exactly the code this guide shipped with (SHA-256). If it prints `error: ... was not written verbatim`, write that file again exactly as shown and rerun the snippet. Without Python, skip the check lines.
+
+Write the checker once:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
@@ -71,11 +78,16 @@ Run it. It takes several minutes for ~15 variants — longer than many shell too
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
-$PY "$WORK/check.py" --file "$OUT/usernames.txt" --out "$OUT/results.csv" > "$OUT/check.log" 2>&1
-tail -n 3 "$OUT/check.log"
+$PY "$WORK/check.py" --file "$OUT/usernames.txt" --out "$OUT/results.csv" --log "$OUT/check.log"
 ```
 
-The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. After a Ctrl-C the output is marked `PARTIAL` and hits that could not be fully verified are moved to `UNKNOWN`.
+Use `--log`, not shell redirection. Read progress with:
+
+```bash
+OUT="osint/bill-gates"; tail -n 3 "$OUT/check.log"
+```
+
+The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. Hits that could not be fully verified (a recheck that was blocked or failed, or a run stopped with Ctrl-C) are moved to `UNKNOWN`, and the header says how many; only a stopped run is marked `PARTIAL`.
 
 - `--site GitHub --site Reddit` — only those sites (also overrides exclusions/NSFW for them).
 - `--nsfw` — include adult sites; only when the user asks.
@@ -167,7 +179,7 @@ Write `"$OUT/report.json"` with this shape (omit what you don't have; arrays may
 
 `unchecked` gets one entry per site, not per row: blocked sites usually block every variant, so list them together (`"username": "billgates, bill.gates"`, `"url"` = the site's main URL).
 
-Write the template and the renderer, then render:
+Write the template and the renderer:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
@@ -178,6 +190,12 @@ EOF
 cat > "$WORK/render_report.py" <<'EOF'
 {{file:skills/sherlock/scripts/render_report.py}}
 EOF
+```
+
+Only if both check lines printed nothing, render. If the check ran through `--proxy`, pass the same `--proxy` here; the photo download uses it.
+
+```bash
+OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
 $PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
 ```
 
@@ -195,11 +213,12 @@ OUT="osint/bill-gates"; rm -rf "$OUT/.work"
 
 | Symptom | Check / fix |
 |---|---|
-| `$PY` is empty | No working Python 3.9+. Offer install (with approval) or continue without it — see step 1. Stdlib only, no pip packages needed. |
+| `$PY` is empty | No working Python 3.10+. Offer install (with approval) or continue without it — see step 1 (an older Python has more options there). Stdlib only, no pip packages needed. |
 | `$WORK` / `$OUT` empty, files written to `/` | The snippet ran without its first line; shell variables don't persist between tool calls. Re-run it with the restore line. |
 | `mkdir`, `<<'EOF'` or `command -v` fail | Not a bash shell (PowerShell/cmd). Use Git Bash/WSL, or translate — see the top of this guide. |
 | Windows: "Python was not found ... Microsoft Store" | A Store stub was picked up; re-run the detection loop in step 1, which tests by running. |
-| Check stopped early (`PARTIAL` in the log) | `results.csv` holds the finished rows. Usernames are checked one after another, so the missing usernames are those with no rows (or fewer rows than the rest). Put only those in `"$OUT/usernames-rest.txt"` and run `--file "$OUT/usernames-rest.txt" --out "$OUT/results.csv" --append > "$OUT/check-rest.log" 2>&1` in the background. The report reads only `check.log`, so set `method.bulk_check` yourself (both run times). |
+| `check.log` unreadable or empty in PowerShell | Use `--log "$OUT/check.log"` instead of `>` redirection (PowerShell writes UTF-16). |
+| Check stopped early (`PARTIAL` in the log) | `results.csv` holds the finished rows. Usernames are checked one after another, so the missing usernames are those with no rows (or fewer rows than the rest). Put only those in `"$OUT/usernames-rest.txt"` and run `--file "$OUT/usernames-rest.txt" --out "$OUT/results.csv" --append --log "$OUT/check-rest.log"` in the background. The report reads only `check.log`, so set `method.bulk_check` yourself (both run times). |
 | Manifest download fails | Both URLs blocked/offline → pass a saved copy with `--data data.json`, or `--proxy`. |
 | Many `UNKNOWN` (timeouts) | Slow network: `--timeout 40`; lower `--workers`. |
 | Many `WAF` (403/429) | Rate-limited or bot-blocked: lower `--workers` (e.g. 5), wait, or use `--proxy`; recheck the important ones in a browser. |

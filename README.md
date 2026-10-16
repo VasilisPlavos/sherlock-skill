@@ -14,18 +14,18 @@ It asks whether to install for the current project or globally, or to use the st
 
 ## Use without installing
 
-    https://vasilisplavos.github.io/sherlock-skill/sherlock.md bill gates
+    Read https://vasilisplavos.github.io/sherlock-skill/sherlock.md and follow it to find the accounts of …
 
 ## Repository
 
 - `skills/sherlock/` — the skill (`SKILL.md`, `scripts/`, `assets/`, `references/`).
-- `standalone/sherlock.md` — single-file guide, **generated** from `standalone/sherlock.src.md` and the skill files.
+- `site/sherlock.md` — the standalone single-file guide, **generated** from `standalone/sherlock.src.md` and the skill files (served at https://vasilisplavos.github.io/sherlock-skill/sherlock.md).
 - `install.md` — install instructions for agents.
 - `site/` — GitHub Pages site.
 
-Development (Python 3.9+, standard library only):
+Development (Python 3.10+, standard library only):
 
-    python tools/build_standalone.py          # regenerate standalone/ and site/ copies
+    python tools/build_standalone.py          # regenerate site/sherlock.md and site/install.md
     python -m unittest discover -s tests -v   # tests
 
 Manual check per agent: run the install prompt, choose "This project", confirm `SKILL.md` is in the agent's skills folder, then ask "find the online accounts of …" and see that the skill starts with the brief.

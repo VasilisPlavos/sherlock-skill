@@ -5,8 +5,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from helpers import ROOT, load, read, script
 
@@ -149,6 +151,34 @@ class Units(unittest.TestCase):
     def test_render_requires_one_placeholder(self):
         with self.assertRaises(render_report.ReportError):
             render_report.render({}, "<html></html>")
+
+
+class Proxy(unittest.TestCase):
+    def test_photo_download_uses_proxy(self):  # a check run through --proxy must not fetch the photo from the user's IP
+        seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                seen.append(self.path)  # a proxy receives the absolute URL
+                body = b"\x89PNG\r\n\x1a\nfake"
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        data = {"subject": {"photo": "http://photo.invalid/a.png"}}
+        render_report.embed_photo(data, proxy=f"http://127.0.0.1:{server.server_address[1]}")
+        self.assertTrue(data["subject"]["photo"].startswith("data:image/png;base64,"))
+        self.assertEqual(data["subject"]["photo_source"], "http://photo.invalid/a.png")
+        self.assertEqual(seen, ["http://photo.invalid/a.png"])
 
 
 if __name__ == "__main__":

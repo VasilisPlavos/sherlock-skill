@@ -17,7 +17,7 @@ Write `<OUT>/report.json` with this shape (omit what you don't have; arrays may 
 ```
 
 - `method`: write `brief` and `browser` yourself. `render_report.py` fills `date`, `duration` (from the start time recorded in step 1), `bulk_check` (from `check.log`), `sites` and `variants` (from `results.csv`) unless you set them.
-- `subject.photo`: the image URL from the most confident profile that has a real photo (avatar or `og:image`; skip generated placeholders such as GitHub identicons, Gravatar defaults or initials avatars). The render step downloads it once and embeds it, so the report keeps its photo offline and after the link expires (the URL is kept as `photo_source`). `photo_credit` is optional text shown under the photo (author/license).
+- `subject.photo`: the image URL from the most confident profile that has a real photo (avatar or `og:image`; skip generated placeholders such as GitHub identicons, Gravatar defaults or initials avatars). The render step downloads it once (through `--proxy` if given) and embeds it, so the report keeps its photo offline and after the link expires (the URL is kept as `photo_source`). `photo_credit` is optional text shown under the photo (author/license).
 - `unchecked`: one entry per site, not per row. Blocked sites usually block every variant, so list them together (`"username": "billgates, bill.gates"`, `"url"` = the site's main URL).
 - `demo` (top level, optional): text for a banner at the top of the page; only for published examples.
 

@@ -1,12 +1,20 @@
-"""Generate standalone/sherlock.md from standalone/sherlock.src.md and copy published files into site/.
+"""Generate site/sherlock.md from standalone/sherlock.src.md and copy install.md into site/.
 
-Placeholders are whole lines of the form {{file:<path relative to the repo root>}}.
+Placeholders are whole lines of the form {{file:<path relative to the repo root>}}, each the only body line of a
+cat > "<path>" <<'EOF' ... EOF heredoc. A SHA-256 check line for the written file follows each heredoc.
 Usage: py -3 tools/build_standalone.py [--check]
 """
-import argparse, os, re, sys
+import argparse, hashlib, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLACEHOLDER = re.compile(r"^\{\{file:([^}]+)\}\}$")
+HEREDOC = re.compile(r"""^cat > "([^"]+)" <<'EOF'$""")
+# No double quotes inside the program (PowerShell 5.1 strips them from native arguments); tolerates CRLF,
+# a UTF-8 BOM and a missing or extra final newline, which file tools add or drop.
+VERIFY = ("$PY -c 'import hashlib,sys,pathlib; d=pathlib.Path(sys.argv[1]).read_bytes().replace(bytes([13,10]),bytes([10])); "
+          "d=d[3:] if d[:3]==bytes([239,187,191]) else d; d=d.rstrip(bytes([10]))+bytes([10]); "
+          "sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else sys.argv[3])' "
+          "\"{path}\" {digest} \"error: {path} was not written verbatim; write it again exactly as shown in this guide\"\n")
 
 
 class BuildError(Exception):
@@ -19,21 +27,36 @@ def read_text(path):
         return f.read().replace("\r\n", "\n")
 
 
+def verify_line(path, body):
+    """The guide line that checks the file a heredoc wrote is exactly `body`, up to line endings and BOM."""
+    normalised = body.rstrip("\n") + "\n"
+    return VERIFY.format(path=path, digest=hashlib.sha256(normalised.encode("utf-8")).hexdigest())
+
+
 def expand(src_text, root):
-    out = []
-    for line in src_text.splitlines(keepends=True):
+    lines = src_text.splitlines(keepends=True)
+    out, pending = [], None
+    for i, line in enumerate(lines):
         m = PLACEHOLDER.match(line.rstrip("\n"))
         if not m:
             out.append(line)
+            if pending and line.rstrip("\n") == "EOF":
+                out.append(pending)
+                pending = None
             continue
         rel = m.group(1).strip()
+        cat = HEREDOC.match(lines[i - 1].rstrip("\n")) if i else None
+        if not cat or i + 1 >= len(lines) or lines[i + 1].rstrip("\n") != "EOF":
+            raise BuildError(f"{{{{file:{rel}}}}} must sit alone between cat > \"<path>\" <<'EOF' and EOF")
         try:
             body = read_text(os.path.join(root, rel))
         except OSError as e:
             raise BuildError(f"{rel}: {e}")
         if "EOF" in body.split("\n"):
             raise BuildError(f"{rel} contains a line 'EOF', which would end the heredoc early")
-        out.append(body if body.endswith("\n") else body + "\n")
+        body = body if body.endswith("\n") else body + "\n"
+        out.append(body)
+        pending = verify_line(cat.group(1), body)
     return "".join(out)
 
 
@@ -43,7 +66,7 @@ def outputs(root):
         install = read_text(os.path.join(root, "install.md"))
     except OSError as e:
         raise BuildError(str(e))
-    return {"standalone/sherlock.md": standalone, "site/sherlock.md": standalone, "site/install.md": install}
+    return {"site/sherlock.md": standalone, "site/install.md": install}
 
 
 def main(argv=None):

@@ -61,7 +61,7 @@ Copy `<tmp>/sherlock-skill/skills/sherlock` to `<skills folder>/sherlock`, then 
 ## 4. Verify
 
 - `<skills folder>/sherlock/SKILL.md` exists and starts with `name: sherlock` in its frontmatter.
-- If Python 3.9+ is available (`python3`, `python` or `py -3`): `<python> "<skills folder>/sherlock/scripts/check.py" --version` prints `check.py 1.0.0` or newer. No Python is fine — the skill explains the options when it runs.
+- If Python 3.10+ is available (`python3`, `python` or `py -3`): `<python> "<skills folder>/sherlock/scripts/check.py" --version` prints `check.py 1.0.0` or newer. No Python is fine — the skill explains the options when it runs.
 - If your agent only loads skills at startup, tell the user to restart it.
 
 ## 5. Tell the user

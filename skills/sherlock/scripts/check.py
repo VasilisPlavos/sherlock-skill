@@ -1,9 +1,9 @@
 """Check usernames against Sherlock's site manifest. Python stdlib only."""
-import argparse, csv, functools, json, os, re, secrets, signal, string, sys, time
+import argparse, csv, functools, json, os, queue, re, secrets, signal, string, sys, time
 import urllib.error, urllib.parse, urllib.request
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, wait
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 MANIFEST = "https://data.sherlockproject.xyz"
 FALLBACK = "https://raw.githubusercontent.com/sherlock-project/sherlock/master/sherlock_project/resources/data.json"
@@ -24,10 +24,19 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # surface the 3xx as an HTTPError instead of following it
 
 
+class FollowRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows 308 like 307 on every Python (urllib only does so from 3.11): '/user/x' -> '/user/x/'."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return super().redirect_request(req, fp, 307 if code == 308 else code, msg, headers, newurl)
+
+    http_error_308 = urllib.request.HTTPRedirectHandler.http_error_302
+
+
 @functools.lru_cache(maxsize=None)
 def opener(proxy, no_redirect=False):
     """Built once per (proxy, redirect mode) and shared by all threads."""
-    handlers = [NoRedirect] if no_redirect else []
+    handlers = [NoRedirect] if no_redirect else [FollowRedirects]
     if proxy:
         handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
     return urllib.request.build_opener(*handlers)
@@ -145,7 +154,7 @@ def check(info, user, args, row):
     if any(w in text for w in WAF):
         row.update(status="WAF", context="bot challenge page")
         return row
-    if not set(types) <= {"message", "status_code", "response_url"}:
+    if not types or not set(types) <= {"message", "status_code", "response_url"}:
         row.update(status="UNKNOWN", context=f"unknown errorType {types}")
         return row
     status = None
@@ -184,16 +193,37 @@ def random_like(user, info, keep_first=False):
     return None
 
 
+def plan_calibration(users, sites):
+    """(site, shape) -> random username to probe. Per pair, the first username of that shape the site can
+    mimic: one it cannot (e.g. too long for its regexCheck) must not leave the shape uncalibrated."""
+    plan = {}
+    for s, info in sites.items():
+        for u in users:
+            key = (s, shape(u))
+            if key not in plan and (ru := random_like(u, info)):
+                plan[key] = ru
+    return plan
+
+
 def track(jobs, rows, calibration=(), on_claimed=None):
     """Collect results as they finish: potential hits live, progress + ETA every 5 s (stderr).
-    Progress counts calibration requests too. Waits in 1 s slices so Ctrl-C / SIGTERM interrupts promptly."""
+    Progress counts calibration requests too. Waits in 1 s slices so Ctrl-C / SIGTERM interrupts promptly.
+    Finished futures arrive through a queue: re-waiting on thousands of pending futures each time is O(n^2)."""
     job_set = set(jobs)
-    pending = job_set | set(calibration)
-    total, finished, hits, start, last = len(pending), 0, 0, time.monotonic(), 0.0
-    while pending:
-        done, pending = wait(pending, timeout=1, return_when=FIRST_COMPLETED)
+    everything = job_set | set(calibration)
+    total, finished, hits, start, last = len(everything), 0, 0, time.monotonic(), 0.0
+    finished_q = queue.Queue()
+    for f in everything:
+        f.add_done_callback(finished_q.put)
+    while finished < total:
+        try:
+            done = [finished_q.get(timeout=1)]
+        except queue.Empty:
+            done = []
         finished += len(done)
-        for job in done & job_set:
+        for job in done:
+            if job not in job_set or job.cancelled():
+                continue
             row = job.result()
             rows.append(row)
             if row["status"] == "CLAIMED":
@@ -202,13 +232,65 @@ def track(jobs, rows, calibration=(), on_claimed=None):
                 if on_claimed:
                     on_claimed(row)
         now = time.monotonic()
-        if now - last >= 5 or not pending:
+        if now - last >= 5 or finished == total:
             last, n = now, finished
             rate = n / max(now - start, 0.001)
             eta = int((total - n) / rate) if n else None
             print(f"progress {n}/{total} ({n * 100 // total}%)  {rate:.0f} req/s  "
                   f"ETA {'?' if eta is None else f'{eta // 60}m{eta % 60:02d}s'}  potential findings {hits}",
                   file=sys.stderr, flush=True)
+
+
+def collect_finished(jobs, rows):
+    """After an interrupt: add the jobs that finished but were not collected yet. Returns how many."""
+    have = {id(r) for r in rows}
+    new = [j.result() for j in jobs if j.done() and not j.cancelled() and id(j.result()) not in have]
+    rows.extend(new)
+    return len(new)
+
+
+def calibration_claimed(calib, site, sh):
+    f = calib.get((site, sh))
+    return bool(f and f.done() and not f.cancelled() and f.result()["status"] == "CLAIMED")
+
+
+def settle(rows, rechecks, calib, handled, interrupted):
+    """Final statuses after the run. A hit stays CLAIMED only if its calibration and (for names with
+    separators) its prefix recheck both completed and passed. Returns how many hits moved to UNKNOWN."""
+    unverified = 0
+
+    def unconfirm(r, why):
+        nonlocal unverified
+        if r["status"] == "CLAIMED":  # each hit counts once
+            r.update(status="UNKNOWN", context=why)
+            unverified += 1
+
+    for r, ru, f in rechecks:
+        if not f.done() or f.cancelled():
+            unconfirm(r, "interrupted before the prefix recheck")
+        elif (status := f.result()["status"]) == "CLAIMED":
+            if r["status"] == "CLAIMED":
+                r.update(status="UNRELIABLE", context=f"site also 'finds' {ru}")
+        elif status != "AVAILABLE":
+            unconfirm(r, f"prefix recheck inconclusive ({status})")
+    for r in rows:
+        if r["status"] in ("CLAIMED", "AVAILABLE") and calibration_claimed(calib, r["site"], shape(r["username"])):
+            r.update(status="UNRELIABLE", context="random username of the same shape also reported as existing")
+    if interrupted:
+        for r in rows:
+            f = calib.get((r["site"], shape(r["username"])))
+            if f and (not f.done() or f.cancelled()):
+                unconfirm(r, "interrupted before calibration")
+            elif shape(r["username"]) and id(r) not in handled:
+                unconfirm(r, "interrupted before the prefix recheck")
+    return unverified
+
+
+def findings_note(interrupted, checked, total, unverified):
+    moved = f"{unverified} unconfirmed hits moved to UNKNOWN" if unverified else ""
+    if interrupted:
+        return f" PARTIAL: {checked}/{total} checked" + (f", {moved}" if moved else "")
+    return f" {moved}" if moved else ""
 
 
 def interrupt(*_):
@@ -273,25 +355,18 @@ def main():
     if os.path.isdir(os.path.join(out_dir, ".work")):  # skill/standalone layout: keep the start time for the report
         init_workdir(out_dir)
     sites = load_sites(args)
-    shapes = {}
-    for u in users:
-        shapes.setdefault(shape(u), u)
 
     signal.signal(signal.SIGTERM, interrupt)  # POSIX: a terminated run still writes what it has
     pool = ThreadPoolExecutor(args.workers)
     # Calibration: a site that "finds" a random username of the same shape cannot be trusted.
-    calib = {}
-    for s, i in sites.items():
-        for sh, u in shapes.items():
-            if (ru := random_like(u, i)):
-                calib[(s, sh)] = pool.submit(probe, s, i, ru, args)
+    calib = {key: pool.submit(probe, key[0], sites[key[0]], ru, args)
+             for key, ru in plan_calibration(users, sites).items()}
     jobs = [pool.submit(probe, s, i, u, args) for u in users for s, i in sites.items()]
     print(f"check.py {__version__}: {len(users)} usernames x {len(sites)} sites "
           f"(+{len(calib)} calibration requests)", file=sys.stderr)
 
     def claimed_by_calibration(site, sh):
-        f = calib.get((site, sh))
-        return bool(f and f.done() and not f.cancelled() and f.result()["status"] == "CLAIMED")
+        return calibration_claimed(calib, site, sh)
 
     # Some sites resolve 'bill.<anything>' to the account 'bill'. As each separated hit arrives, re-probe it
     # with the first word kept and the rest random; if that is "found" too, the hit means nothing.
@@ -303,7 +378,9 @@ def main():
             ru = random_like(r["username"], sites[r["site"]], keep_first=True)
             if ru and ru != r["username"]:
                 rechecks.append((r, ru, pool.submit(probe, r["site"], sites[r["site"]], ru, args)))
+        handled.add(id(r))  # last: a Ctrl-C before this leaves the hit unconfirmed (see settle)
 
+    handled = set()
     rows, interrupted = [], False
     try:
         track(jobs, rows, calib.values(), on_claimed=queue_recheck)
@@ -313,19 +390,10 @@ def main():
     except KeyboardInterrupt:
         interrupted = True
         print("\ninterrupted: writing partial results (in-flight requests may take a few seconds)", file=sys.stderr)
+        collect_finished(jobs, rows)
     pool.shutdown(wait=not interrupted, cancel_futures=True)
 
-    unverified = 0
-    for r, ru, f in rechecks:
-        if not f.done() or f.cancelled():
-            if r["status"] == "CLAIMED":  # never confirmed: keep it out of the [+] list
-                r.update(status="UNKNOWN", context="interrupted before the prefix recheck")
-                unverified += 1
-        elif f.result()["status"] == "CLAIMED":
-            r.update(status="UNRELIABLE", context=f"site also 'finds' {ru}")
-    for r in rows:
-        if r["status"] in ("CLAIMED", "AVAILABLE") and claimed_by_calibration(r["site"], shape(r["username"])):
-            r.update(status="UNRELIABLE", context="random username of the same shape also reported as existing")
+    unverified = settle(rows, rechecks, calib, handled, interrupted)
     rows.sort(key=lambda r: (r["username"], r["site"].lower()))
     fields = ["username", "site", "url", "status", "http", "ms", "context"]
     append = args.append and os.path.exists(args.out)
@@ -334,11 +402,7 @@ def main():
         if not append:
             w.writeheader()
         w.writerows(rows)
-    note = ""
-    if interrupted:
-        note = f" PARTIAL: {len(rows)}/{len(jobs)} checked"
-        note += f", {unverified} unconfirmed hits moved to UNKNOWN" if unverified else ""
-    print("\nFindings (after calibration):" + note)
+    print("\nFindings (after calibration):" + findings_note(interrupted, len(rows), len(jobs), unverified))
     for r in rows:
         if r["status"] == "CLAIMED":
             print(f"[+] {r['username']:<20} {r['site']:<22} {r['url']}")

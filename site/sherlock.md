@@ -24,12 +24,13 @@ Set the output folder (short ASCII slug of the subject) and find a working Pytho
 OUT="osint/bill-gates"; WORK="$OUT/.work"; mkdir -p "$WORK"
 date +%s > "$WORK/started"   # for the total duration in the report
 
-PY=""
+PY=""; OLD=""
 for c in python3 python "py -3"; do
-  $c -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1 && { PY="$c"; break; }
+  if $c -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then PY="$c"; break; fi
+  [ -z "$OLD" ] && v=$($c -c 'import platform; print(platform.python_version())' 2>/dev/null) && OLD="$c = Python $v"
 done
 echo "$PY" > "$WORK/py"
-[ -n "$PY" ] && $PY --version || echo "No Python 3.9+ found"
+[ -n "$PY" ] && $PY --version || echo "No Python 3.10+ found${OLD:+ (found: $OLD)}"
 ```
 
 **Shell variables do not survive between tool calls.** Every later snippet therefore starts by restoring them — keep that first line, and run every snippet from the same directory (paths are relative to it). `$PY` stays unquoted so `py -3` works.
@@ -38,6 +39,8 @@ No Python → never install on your own. Offer the user:
 
 - **Install it** (their approval): Windows `winget install -e --id Python.Python.3.12` (per-user, no admin; open a new shell afterwards), Debian `apt-get install -y python3`, macOS `brew install python`.
 - **Continue without Python**: skip step 3 (no bulk check); find accounts via web search and the browser checks in step 4; build the report by hand as described in step 6. The report states that the bulk check was not run.
+
+Only an older Python (below 3.10) → tell the user which one, and offer: install a current Python (their approval); try the old one anyway; adapt a copy of the script to run on it (the SHA-256 check in step 3 then reports a mismatch, which is expected); or continue without the bulk check. To use the old one, write its command to `"$WORK/py"` (e.g. `echo python3 > "$WORK/py"`).
 
 ## 2. Username variants (gate)
 
@@ -58,17 +61,21 @@ printf '%s\n' thisisbillgates billgates bill.gates bill_gates williamgates bgate
 
 ## 3. Bulk existence check
 
-Needs `$PY`; skipped when the user chose to continue without Python. Write the checker once:
+Needs `$PY`; skipped when the user chose to continue without Python.
+
+Each file this guide writes is followed by a check line: it proves the file is exactly the code this guide shipped with (SHA-256). If it prints `error: ... was not written verbatim`, write that file again exactly as shown and rerun the snippet. Without Python, skip the check lines.
+
+Write the checker once:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
 cat > "$WORK/check.py" <<'EOF'
 """Check usernames against Sherlock's site manifest. Python stdlib only."""
-import argparse, csv, functools, json, os, re, secrets, signal, string, sys, time
+import argparse, csv, functools, json, os, queue, re, secrets, signal, string, sys, time
 import urllib.error, urllib.parse, urllib.request
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, wait
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 MANIFEST = "https://data.sherlockproject.xyz"
 FALLBACK = "https://raw.githubusercontent.com/sherlock-project/sherlock/master/sherlock_project/resources/data.json"
@@ -89,10 +96,19 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # surface the 3xx as an HTTPError instead of following it
 
 
+class FollowRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows 308 like 307 on every Python (urllib only does so from 3.11): '/user/x' -> '/user/x/'."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return super().redirect_request(req, fp, 307 if code == 308 else code, msg, headers, newurl)
+
+    http_error_308 = urllib.request.HTTPRedirectHandler.http_error_302
+
+
 @functools.lru_cache(maxsize=None)
 def opener(proxy, no_redirect=False):
     """Built once per (proxy, redirect mode) and shared by all threads."""
-    handlers = [NoRedirect] if no_redirect else []
+    handlers = [NoRedirect] if no_redirect else [FollowRedirects]
     if proxy:
         handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
     return urllib.request.build_opener(*handlers)
@@ -210,7 +226,7 @@ def check(info, user, args, row):
     if any(w in text for w in WAF):
         row.update(status="WAF", context="bot challenge page")
         return row
-    if not set(types) <= {"message", "status_code", "response_url"}:
+    if not types or not set(types) <= {"message", "status_code", "response_url"}:
         row.update(status="UNKNOWN", context=f"unknown errorType {types}")
         return row
     status = None
@@ -249,16 +265,37 @@ def random_like(user, info, keep_first=False):
     return None
 
 
+def plan_calibration(users, sites):
+    """(site, shape) -> random username to probe. Per pair, the first username of that shape the site can
+    mimic: one it cannot (e.g. too long for its regexCheck) must not leave the shape uncalibrated."""
+    plan = {}
+    for s, info in sites.items():
+        for u in users:
+            key = (s, shape(u))
+            if key not in plan and (ru := random_like(u, info)):
+                plan[key] = ru
+    return plan
+
+
 def track(jobs, rows, calibration=(), on_claimed=None):
     """Collect results as they finish: potential hits live, progress + ETA every 5 s (stderr).
-    Progress counts calibration requests too. Waits in 1 s slices so Ctrl-C / SIGTERM interrupts promptly."""
+    Progress counts calibration requests too. Waits in 1 s slices so Ctrl-C / SIGTERM interrupts promptly.
+    Finished futures arrive through a queue: re-waiting on thousands of pending futures each time is O(n^2)."""
     job_set = set(jobs)
-    pending = job_set | set(calibration)
-    total, finished, hits, start, last = len(pending), 0, 0, time.monotonic(), 0.0
-    while pending:
-        done, pending = wait(pending, timeout=1, return_when=FIRST_COMPLETED)
+    everything = job_set | set(calibration)
+    total, finished, hits, start, last = len(everything), 0, 0, time.monotonic(), 0.0
+    finished_q = queue.Queue()
+    for f in everything:
+        f.add_done_callback(finished_q.put)
+    while finished < total:
+        try:
+            done = [finished_q.get(timeout=1)]
+        except queue.Empty:
+            done = []
         finished += len(done)
-        for job in done & job_set:
+        for job in done:
+            if job not in job_set or job.cancelled():
+                continue
             row = job.result()
             rows.append(row)
             if row["status"] == "CLAIMED":
@@ -267,13 +304,65 @@ def track(jobs, rows, calibration=(), on_claimed=None):
                 if on_claimed:
                     on_claimed(row)
         now = time.monotonic()
-        if now - last >= 5 or not pending:
+        if now - last >= 5 or finished == total:
             last, n = now, finished
             rate = n / max(now - start, 0.001)
             eta = int((total - n) / rate) if n else None
             print(f"progress {n}/{total} ({n * 100 // total}%)  {rate:.0f} req/s  "
                   f"ETA {'?' if eta is None else f'{eta // 60}m{eta % 60:02d}s'}  potential findings {hits}",
                   file=sys.stderr, flush=True)
+
+
+def collect_finished(jobs, rows):
+    """After an interrupt: add the jobs that finished but were not collected yet. Returns how many."""
+    have = {id(r) for r in rows}
+    new = [j.result() for j in jobs if j.done() and not j.cancelled() and id(j.result()) not in have]
+    rows.extend(new)
+    return len(new)
+
+
+def calibration_claimed(calib, site, sh):
+    f = calib.get((site, sh))
+    return bool(f and f.done() and not f.cancelled() and f.result()["status"] == "CLAIMED")
+
+
+def settle(rows, rechecks, calib, handled, interrupted):
+    """Final statuses after the run. A hit stays CLAIMED only if its calibration and (for names with
+    separators) its prefix recheck both completed and passed. Returns how many hits moved to UNKNOWN."""
+    unverified = 0
+
+    def unconfirm(r, why):
+        nonlocal unverified
+        if r["status"] == "CLAIMED":  # each hit counts once
+            r.update(status="UNKNOWN", context=why)
+            unverified += 1
+
+    for r, ru, f in rechecks:
+        if not f.done() or f.cancelled():
+            unconfirm(r, "interrupted before the prefix recheck")
+        elif (status := f.result()["status"]) == "CLAIMED":
+            if r["status"] == "CLAIMED":
+                r.update(status="UNRELIABLE", context=f"site also 'finds' {ru}")
+        elif status != "AVAILABLE":
+            unconfirm(r, f"prefix recheck inconclusive ({status})")
+    for r in rows:
+        if r["status"] in ("CLAIMED", "AVAILABLE") and calibration_claimed(calib, r["site"], shape(r["username"])):
+            r.update(status="UNRELIABLE", context="random username of the same shape also reported as existing")
+    if interrupted:
+        for r in rows:
+            f = calib.get((r["site"], shape(r["username"])))
+            if f and (not f.done() or f.cancelled()):
+                unconfirm(r, "interrupted before calibration")
+            elif shape(r["username"]) and id(r) not in handled:
+                unconfirm(r, "interrupted before the prefix recheck")
+    return unverified
+
+
+def findings_note(interrupted, checked, total, unverified):
+    moved = f"{unverified} unconfirmed hits moved to UNKNOWN" if unverified else ""
+    if interrupted:
+        return f" PARTIAL: {checked}/{total} checked" + (f", {moved}" if moved else "")
+    return f" {moved}" if moved else ""
 
 
 def interrupt(*_):
@@ -338,25 +427,18 @@ def main():
     if os.path.isdir(os.path.join(out_dir, ".work")):  # skill/standalone layout: keep the start time for the report
         init_workdir(out_dir)
     sites = load_sites(args)
-    shapes = {}
-    for u in users:
-        shapes.setdefault(shape(u), u)
 
     signal.signal(signal.SIGTERM, interrupt)  # POSIX: a terminated run still writes what it has
     pool = ThreadPoolExecutor(args.workers)
     # Calibration: a site that "finds" a random username of the same shape cannot be trusted.
-    calib = {}
-    for s, i in sites.items():
-        for sh, u in shapes.items():
-            if (ru := random_like(u, i)):
-                calib[(s, sh)] = pool.submit(probe, s, i, ru, args)
+    calib = {key: pool.submit(probe, key[0], sites[key[0]], ru, args)
+             for key, ru in plan_calibration(users, sites).items()}
     jobs = [pool.submit(probe, s, i, u, args) for u in users for s, i in sites.items()]
     print(f"check.py {__version__}: {len(users)} usernames x {len(sites)} sites "
           f"(+{len(calib)} calibration requests)", file=sys.stderr)
 
     def claimed_by_calibration(site, sh):
-        f = calib.get((site, sh))
-        return bool(f and f.done() and not f.cancelled() and f.result()["status"] == "CLAIMED")
+        return calibration_claimed(calib, site, sh)
 
     # Some sites resolve 'bill.<anything>' to the account 'bill'. As each separated hit arrives, re-probe it
     # with the first word kept and the rest random; if that is "found" too, the hit means nothing.
@@ -368,7 +450,9 @@ def main():
             ru = random_like(r["username"], sites[r["site"]], keep_first=True)
             if ru and ru != r["username"]:
                 rechecks.append((r, ru, pool.submit(probe, r["site"], sites[r["site"]], ru, args)))
+        handled.add(id(r))  # last: a Ctrl-C before this leaves the hit unconfirmed (see settle)
 
+    handled = set()
     rows, interrupted = [], False
     try:
         track(jobs, rows, calib.values(), on_claimed=queue_recheck)
@@ -378,19 +462,10 @@ def main():
     except KeyboardInterrupt:
         interrupted = True
         print("\ninterrupted: writing partial results (in-flight requests may take a few seconds)", file=sys.stderr)
+        collect_finished(jobs, rows)
     pool.shutdown(wait=not interrupted, cancel_futures=True)
 
-    unverified = 0
-    for r, ru, f in rechecks:
-        if not f.done() or f.cancelled():
-            if r["status"] == "CLAIMED":  # never confirmed: keep it out of the [+] list
-                r.update(status="UNKNOWN", context="interrupted before the prefix recheck")
-                unverified += 1
-        elif f.result()["status"] == "CLAIMED":
-            r.update(status="UNRELIABLE", context=f"site also 'finds' {ru}")
-    for r in rows:
-        if r["status"] in ("CLAIMED", "AVAILABLE") and claimed_by_calibration(r["site"], shape(r["username"])):
-            r.update(status="UNRELIABLE", context="random username of the same shape also reported as existing")
+    unverified = settle(rows, rechecks, calib, handled, interrupted)
     rows.sort(key=lambda r: (r["username"], r["site"].lower()))
     fields = ["username", "site", "url", "status", "http", "ms", "context"]
     append = args.append and os.path.exists(args.out)
@@ -399,11 +474,7 @@ def main():
         if not append:
             w.writeheader()
         w.writerows(rows)
-    note = ""
-    if interrupted:
-        note = f" PARTIAL: {len(rows)}/{len(jobs)} checked"
-        note += f", {unverified} unconfirmed hits moved to UNKNOWN" if unverified else ""
-    print("\nFindings (after calibration):" + note)
+    print("\nFindings (after calibration):" + findings_note(interrupted, len(rows), len(jobs), unverified))
     for r in rows:
         if r["status"] == "CLAIMED":
             print(f"[+] {r['username']:<20} {r['site']:<22} {r['url']}")
@@ -420,17 +491,23 @@ def main():
 if __name__ == "__main__":
     main()
 EOF
+$PY -c 'import hashlib,sys,pathlib; d=pathlib.Path(sys.argv[1]).read_bytes().replace(bytes([13,10]),bytes([10])); d=d[3:] if d[:3]==bytes([239,187,191]) else d; d=d.rstrip(bytes([10]))+bytes([10]); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else sys.argv[3])' "$WORK/check.py" 102b1f93a751b8aac76e90c670c417bbd10099a0d4e4e77be9eb08b87f5f0004 "error: $WORK/check.py was not written verbatim; write it again exactly as shown in this guide"
 ```
 
 Run it. It takes several minutes for ~15 variants — longer than many shell tools' default timeout — so run it **in the background** and read progress from the log. **Never kill it** (no `kill`, `taskkill` or tool-side stop): wait for it to finish. If the user wants to stop early, they press Ctrl-C themselves; the finished rows are still written.
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
-$PY "$WORK/check.py" --file "$OUT/usernames.txt" --out "$OUT/results.csv" > "$OUT/check.log" 2>&1
-tail -n 3 "$OUT/check.log"
+$PY "$WORK/check.py" --file "$OUT/usernames.txt" --out "$OUT/results.csv" --log "$OUT/check.log"
 ```
 
-The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. After a Ctrl-C the output is marked `PARTIAL` and hits that could not be fully verified are moved to `UNKNOWN`.
+Use `--log`, not shell redirection. Read progress with:
+
+```bash
+OUT="osint/bill-gates"; tail -n 3 "$OUT/check.log"
+```
+
+The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. Hits that could not be fully verified (a recheck that was blocked or failed, or a run stopped with Ctrl-C) are moved to `UNKNOWN`, and the header says how many; only a stopped run is marked `PARTIAL`.
 
 - `--site GitHub --site Reddit` — only those sites (also overrides exclusions/NSFW for them).
 - `--nsfw` — include adult sites; only when the user asks.
@@ -522,7 +599,7 @@ Write `"$OUT/report.json"` with this shape (omit what you don't have; arrays may
 
 `unchecked` gets one entry per site, not per row: blocked sites usually block every variant, so list them together (`"username": "billgates, bill.gates"`, `"url"` = the site's main URL).
 
-Write the template and the renderer, then render:
+Write the template and the renderer:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
@@ -684,12 +761,13 @@ main.append(card('Methodology', el('dl', {},
 </body>
 </html>
 EOF
+$PY -c 'import hashlib,sys,pathlib; d=pathlib.Path(sys.argv[1]).read_bytes().replace(bytes([13,10]),bytes([10])); d=d[3:] if d[:3]==bytes([239,187,191]) else d; d=d.rstrip(bytes([10]))+bytes([10]); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else sys.argv[3])' "$WORK/template.html" bb11214c600ec3cc9adf18c746d994def10f299d50e4d40435068895fe05bf5b "error: $WORK/template.html was not written verbatim; write it again exactly as shown in this guide"
 
 cat > "$WORK/render_report.py" <<'EOF'
 """Render <OUT>/report.json into <OUT>/report.html using the report template. Python stdlib only."""
 import argparse, base64, csv, datetime, json, os, re, sys, time, urllib.request
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"
 DEFAULT_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "template.html")
 OBJECTS = ("subject", "method")
@@ -794,15 +872,17 @@ def fill_method(data, out_dir, now=None):
             method[key] = value
 
 
-def embed_photo(data):
-    """Embed the photo: CDN links (LinkedIn, Instagram, ...) expire, and a remote image pings its site on every open."""
+def embed_photo(data, proxy=None):
+    """Embed the photo: CDN links (LinkedIn, Instagram, ...) expire, and a remote image pings its site on every open.
+    With `proxy`, the download goes through it, like check.py's requests."""
     subject = data.get("subject") or {}
     photo = subject.get("photo")
     if not (isinstance(photo, str) and photo.startswith(("http://", "https://"))):
         return
     try:
         req = urllib.request.Request(photo, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=15) as r:
+        handlers = [urllib.request.ProxyHandler({"http": proxy, "https": proxy})] if proxy else []
+        with urllib.request.build_opener(*handlers).open(req, timeout=15) as r:
             kind, body = r.headers.get_content_type(), r.read(2_000_001)
         if kind in ("image/jpeg", "image/png", "image/gif", "image/webp") and len(body) <= 2_000_000:
             subject.update(photo=f"data:{kind};base64," + base64.b64encode(body).decode(), photo_source=photo)
@@ -825,13 +905,14 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="Render <OUT>/report.json into <OUT>/report.html.")
     p.add_argument("out", help="output folder, e.g. osint/bill-gates")
     p.add_argument("--template", default=DEFAULT_TEMPLATE, help="report template (default: the skill's assets)")
+    p.add_argument("--proxy", help="http(s) proxy for the photo download; use the same one as check.py")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = p.parse_args(argv)
     try:
         data = load_report(os.path.join(args.out, "report.json"))
         validate(data)
         fill_method(data, args.out)
-        embed_photo(data)
+        embed_photo(data, args.proxy)
         with open(args.template, encoding="utf-8-sig") as f:
             html = render(data, f.read())
         dest = os.path.join(args.out, "report.html")
@@ -847,6 +928,13 @@ def main(argv=None):
 if __name__ == "__main__":
     sys.exit(main())
 EOF
+$PY -c 'import hashlib,sys,pathlib; d=pathlib.Path(sys.argv[1]).read_bytes().replace(bytes([13,10]),bytes([10])); d=d[3:] if d[:3]==bytes([239,187,191]) else d; d=d.rstrip(bytes([10]))+bytes([10]); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else sys.argv[3])' "$WORK/render_report.py" 272ddd9bcde2904ab492322aca5444ce22571227b90c6638ce588b42e8e8d3c2 "error: $WORK/render_report.py was not written verbatim; write it again exactly as shown in this guide"
+```
+
+Only if both check lines printed nothing, render. If the check ran through `--proxy`, pass the same `--proxy` here; the photo download uses it.
+
+```bash
+OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
 $PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
 ```
 
@@ -864,11 +952,12 @@ OUT="osint/bill-gates"; rm -rf "$OUT/.work"
 
 | Symptom | Check / fix |
 |---|---|
-| `$PY` is empty | No working Python 3.9+. Offer install (with approval) or continue without it — see step 1. Stdlib only, no pip packages needed. |
+| `$PY` is empty | No working Python 3.10+. Offer install (with approval) or continue without it — see step 1 (an older Python has more options there). Stdlib only, no pip packages needed. |
 | `$WORK` / `$OUT` empty, files written to `/` | The snippet ran without its first line; shell variables don't persist between tool calls. Re-run it with the restore line. |
 | `mkdir`, `<<'EOF'` or `command -v` fail | Not a bash shell (PowerShell/cmd). Use Git Bash/WSL, or translate — see the top of this guide. |
 | Windows: "Python was not found ... Microsoft Store" | A Store stub was picked up; re-run the detection loop in step 1, which tests by running. |
-| Check stopped early (`PARTIAL` in the log) | `results.csv` holds the finished rows. Usernames are checked one after another, so the missing usernames are those with no rows (or fewer rows than the rest). Put only those in `"$OUT/usernames-rest.txt"` and run `--file "$OUT/usernames-rest.txt" --out "$OUT/results.csv" --append > "$OUT/check-rest.log" 2>&1` in the background. The report reads only `check.log`, so set `method.bulk_check` yourself (both run times). |
+| `check.log` unreadable or empty in PowerShell | Use `--log "$OUT/check.log"` instead of `>` redirection (PowerShell writes UTF-16). |
+| Check stopped early (`PARTIAL` in the log) | `results.csv` holds the finished rows. Usernames are checked one after another, so the missing usernames are those with no rows (or fewer rows than the rest). Put only those in `"$OUT/usernames-rest.txt"` and run `--file "$OUT/usernames-rest.txt" --out "$OUT/results.csv" --append --log "$OUT/check-rest.log"` in the background. The report reads only `check.log`, so set `method.bulk_check` yourself (both run times). |
 | Manifest download fails | Both URLs blocked/offline → pass a saved copy with `--data data.json`, or `--proxy`. |
 | Many `UNKNOWN` (timeouts) | Slow network: `--timeout 40`; lower `--workers`. |
 | Many `WAF` (403/429) | Rate-limited or bot-blocked: lower `--workers` (e.g. 5), wait, or use `--proxy`; recheck the important ones in a browser. |

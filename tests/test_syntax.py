@@ -13,7 +13,7 @@ class Py39Syntax(unittest.TestCase):
         self.assertTrue(files)
         for path in files:
             with open(path, encoding="utf-8") as f:
-                ast.parse(f.read(), path, feature_version=(3, 9))
+                ast.parse(f.read(), path, feature_version=(3, 10))
 
 
 if __name__ == "__main__":
