@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sherlock skill</title>
+<meta name="description" content="Find a person's accounts across ~450 sites with your AI agent. An Agent Skill and a standalone guide built on Sherlock's site list.">
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--text:#1c2430;--muted:#5d6977;--line:#e2e6ec;--accent:#0b7a75;--soft:#e2f2f1}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1319;--card:#161d25;--text:#e6edf3;--muted:#9aa6b2;--line:#283340;--accent:#3cc1b9;--soft:#14302e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+main{max-width:860px;margin:0 auto;padding:40px 16px 64px}
+h1{font-size:34px;line-height:1.2;margin:0 0 8px}
+h2{font-size:20px;margin:0 0 12px}
+.lead{font-size:18px;color:var(--muted);margin:0 0 28px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:20px}
+.prompt{display:flex;gap:10px;align-items:flex-start;background:var(--soft);border-radius:8px;padding:12px;margin:8px 0 4px}
+.prompt code{flex:1;min-width:0;overflow-wrap:anywhere;font:14px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+button{font:inherit;font-size:13px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:6px;padding:4px 12px;cursor:pointer;flex:none}
+button:hover{opacity:.9}
+.muted{color:var(--muted);font-size:14px}
+ul{padding-left:20px;margin:0}
+.agents{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;list-style:none;padding:0}
+.agents li{border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.cta{display:inline-block;margin-top:4px;font-weight:600}
+footer{color:var(--muted);font-size:14px;text-align:center}
+</style>
+</head>
+<body>
+<main>
+  <h1>Sherlock skill</h1>
+  <p class="lead">Find a person's accounts across ~450 websites with your AI agent: it turns a short description into username variants, checks them, verifies which profiles are really that person, and writes a clean HTML report.</p>
+
+  <section class="card">
+    <h2>Install as a skill</h2>
+    <p>Paste this into your agent. It asks whether to install for this project or globally — or to use the standalone guide with nothing installed.</p>
+    <div class="prompt"><code id="p-install">Read https://vasilisplavos.github.io/sherlock-skill/install.md and install the sherlock skill</code><button type="button" data-copy="p-install">Copy</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Or use it without installing</h2>
+    <p>Any agent that can read a web page and run commands can follow the standalone guide directly.</p>
+    <div class="prompt"><code id="p-standalone">https://vasilisplavos.github.io/sherlock-skill/sherlock.md bill gates</code><button type="button" data-copy="p-standalone">Copy</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Example report</h2>
+    <p>A real run for a public figure, with high, medium and low confidence matches and the sites that could not be verified.</p>
+    <a class="cta" href="demo/bill-gates.html">Open the Bill Gates demo →</a>
+  </section>
+
+  <section class="card">
+    <h2>Works with</h2>
+    <ul class="agents">
+      <li>Claude Code</li><li>OpenAI Codex</li><li>Gemini CLI</li><li>GitHub Copilot</li><li>Cursor</li><li>OpenCode</li>
+    </ul>
+    <p class="muted">Plus any agent that reads <code>SKILL.md</code> skills. Others can use the standalone guide.</p>
+  </section>
+
+  <section class="card">
+    <h2>How it works</h2>
+    <ul>
+      <li>Brief → username variants → bulk check → browser checks → identity verification → report, with a stop for your approval at each key step.</li>
+      <li>Uses <a href="https://github.com/sherlock-project/sherlock">Sherlock</a>'s live site list as data; the checker is plain Python standard library — nothing to install.</li>
+      <li>Calibrates every site with random usernames to filter false positives.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Use it responsibly</h2>
+    <p class="muted">For lawful purposes only: checking your own footprint, due diligence, research with a legitimate reason. The agent declines requests that look like stalking or harassment, and reports only what pages actually show, with sources.</p>
+  </section>
+
+  <footer><a href="https://github.com/VasilisPlavos/sherlock-skill">Source on GitHub</a></footer>
+</main>
+<script>
+document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', async () => {
+  const text = document.getElementById(b.dataset.copy).textContent;
+  try { await navigator.clipboard.writeText(text); }
+  catch { const t = document.createElement('textarea'); t.value = text; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); }
+  b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy', 1200);
+}));
+</script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Profile report</title>
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--text:#1c2430;--muted:#5d6977;--line:#e2e6ec;--accent:#0b7a75;--soft:#e2f2f1;--high:#1a7f37;--medium:#9a6700;--low:#8c959f}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1319;--card:#161d25;--text:#e6edf3;--muted:#9aa6b2;--line:#283340;--accent:#3cc1b9;--soft:#14302e;--high:#3fb950;--medium:#d29922;--low:#6e7681}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent);overflow-wrap:anywhere}
+.wrap{max-width:1140px;margin:0 auto;padding:24px 16px;display:grid;grid-template-columns:330px minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:860px){.wrap{grid-template-columns:minmax(0,1fr)}}
+@media (min-width:861px){aside .card{position:sticky;top:16px}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:20px}
+h1{font-size:22px;margin:12px 0 2px}
+h2{font-size:16px;margin:0 0 12px}
+.muted{color:var(--muted)}
+.avatar{width:96px;height:96px;border-radius:50%;object-fit:cover;background:var(--soft);color:var(--accent);display:grid;place-items:center;font-size:34px;font-weight:600}
+.stats{display:flex;gap:18px;margin:14px 0;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.stats b{display:block;font-size:20px}
+.row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);width:62px;flex:none}
+.val{flex:1;min-width:0;overflow-wrap:anywhere}
+.src{font-size:12px;color:var(--muted)}
+button{font:inherit;font-size:12px;border:1px solid var(--line);background:transparent;color:var(--text);border-radius:6px;padding:3px 9px;cursor:pointer;flex:none}
+button:hover{border-color:var(--accent);color:var(--accent)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.p{border:1px solid var(--line);border-left:4px solid var(--low);border-radius:10px;padding:12px}
+.p.high{border-left-color:var(--high)}.p.medium{border-left-color:var(--medium)}
+.p .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.badge{font-size:11px;font-weight:600;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:var(--soft)}
+.badge.high{color:var(--high)}.badge.medium{color:var(--medium)}.badge.low{color:var(--low)}
+.kv{font-size:13px;margin-top:4px}.kv span{color:var(--muted)}
+.item{padding:8px 0;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+.demo{background:var(--soft);border-bottom:1px solid var(--line);padding:10px 16px;text-align:center;font-size:14px}
+.credit{font-size:11px;color:var(--muted);margin-top:4px}
+</style>
+</head>
+<body>
+<div class="wrap"><aside id="side"></aside><main id="main"></main></div>
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById('report-data').textContent);
+const arr = x => Array.isArray(x) ? x : [];
+const str = v => v == null ? '' : String(v);
+const S = D.subject || {}, P = arr(D.profiles), C = arr(D.contacts);
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null) continue;
+    if (k === 'class') e.className = v; else e.setAttribute(k, v);
+  }
+  for (const k of kids.flat(Infinity)) if (k != null && k !== '') e.append(k instanceof Node ? k : String(k));
+  return e;
+}
+const safe = u => /^https?:\/\//i.test(str(u)) ? str(u) : null;
+const link = (u, text) => safe(u) ? el('a', {href: safe(u), target: '_blank', rel: 'noopener noreferrer'}, text || safe(u)) : (text || str(u));
+function copyBtn(value) {
+  const v = str(value);
+  const b = el('button', {type: 'button', title: 'Copy'}, 'Copy');
+  b.onclick = async () => {
+    try { await navigator.clipboard.writeText(v); }
+    catch { const t = el('textarea'); t.value = v; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); }
+    b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy', 1200);
+  };
+  return b;
+}
+const card = (title, ...kids) => el('section', {class: 'card'}, title ? el('h2', {}, title) : null, ...kids);
+const conf = p => ['high', 'medium'].includes(str(p.confidence).toLowerCase()) ? str(p.confidence).toLowerCase() : 'low';
+const count = c => P.filter(p => conf(p) === c).length;
+const kv = (k, v) => str(v) !== '' ? el('div', {class: 'kv'}, el('span', {}, k + ': '), str(v)) : null;
+
+function contactValue(c) {
+  const v = str(c.value);
+  if (c.type === 'email') return el('a', {href: 'mailto:' + v}, v);
+  if (c.type === 'phone') return el('a', {href: 'tel:' + v.replace(/[^\d+]/g, '')}, v);
+  return link(v);
+}
+function exportBtn() {
+  const b = el('button', {type: 'button'}, 'Export JSON');
+  b.onclick = () => {
+    const a = el('a', {href: URL.createObjectURL(new Blob([JSON.stringify(D, null, 2)], {type: 'application/json'})), download: 'report.json'});
+    document.body.append(a); a.click(); a.remove();
+  };
+  return b;
+}
+
+const photo = /^data:image\/(png|jpeg|gif|webp);base64,/i.test(str(S.photo)) ? str(S.photo) : safe(S.photo);
+const name = str(S.name), aliases = [].concat(S.aliases || []).map(str).filter(Boolean);
+const initials = (name || '?').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
+document.title = (name || 'Profile') + ' – report';
+if (str(D.demo)) document.body.prepend(el('div', {class: 'demo', role: 'note'}, str(D.demo)));
+document.getElementById('side').append(el('div', {class: 'card'},
+  photo ? el('img', {class: 'avatar', src: photo, alt: '', referrerpolicy: 'no-referrer'}) : el('div', {class: 'avatar'}, initials),
+  S.photo_credit ? el('div', {class: 'credit'}, str(S.photo_credit)) : null,
+  el('h1', {}, name || 'Unknown'),
+  aliases.length ? el('div', {class: 'muted'}, 'aka ' + aliases.join(', ')) : null,
+  S.headline ? el('div', {}, str(S.headline)) : null,
+  S.location ? el('div', {class: 'muted'}, str(S.location)) : null,
+  el('div', {class: 'stats'},
+    el('div', {}, el('b', {}, count('high')), 'High'),
+    el('div', {}, el('b', {}, count('medium')), 'Medium'),
+    el('div', {}, el('b', {}, P.length), 'Profiles')),
+  el('h2', {}, 'Contact'),
+  C.length ? C.map(c => el('div', {class: 'row'},
+    el('span', {class: 'label'}, str(c.type)),
+    el('div', {class: 'val'}, contactValue(c), c.source ? el('div', {class: 'src'}, 'source: ', link(c.source)) : null),
+    copyBtn(c.value))) : el('div', {class: 'muted'}, 'No public contact details found.'),
+  el('div', {style: 'margin-top:14px'}, exportBtn())));
+
+const main = document.getElementById('main');
+if (S.summary) main.append(card('Summary', el('p', {style: 'margin:0'}, str(S.summary))));
+
+const grid = el('div', {class: 'grid'});
+let filter = 'all';
+function drawProfiles() {
+  grid.replaceChildren(...P.filter(p => filter === 'all' || conf(p) === filter).map(p => el('div', {class: 'p ' + conf(p)},
+    el('div', {class: 'top'}, el('strong', {}, str(p.site)), el('span', {class: 'badge ' + conf(p)}, conf(p))),
+    el('div', {class: 'row'}, el('div', {class: 'val'}, link(p.url)), copyBtn(p.url)),
+    kv('Username', p.username), kv('Name', p.name), kv('Bio', p.bio), kv('Location', p.location), kv('Followers', p.followers),
+    p.reason ? el('div', {class: 'src', style: 'margin-top:6px'}, str(p.reason)) : null)));
+}
+const chips = el('div', {class: 'chips'}, ['all', 'high', 'medium', 'low'].map(f => {
+  const b = el('button', {type: 'button', class: 'chip', 'aria-pressed': String(f === filter)}, f);
+  b.onclick = () => { filter = f; chips.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', String(x === b))); drawProfiles(); };
+  return b;
+}));
+drawProfiles();
+main.append(card('Social profiles', P.length ? [chips, grid] : el('div', {class: 'muted'}, 'No profiles found.')));
+
+const timeline = (items, head, sub) => items.map(i => el('div', {class: 'item'}, el('strong', {}, head(i)), el('div', {class: 'muted'}, sub(i)), i.source ? el('div', {class: 'src'}, link(i.source)) : null));
+const join = (...xs) => xs.map(str).filter(Boolean).join(' · ');
+if (arr(D.experience).length) main.append(card('Work experience', timeline(arr(D.experience), i => join(i.title, i.org), i => str(i.period))));
+if (arr(D.education).length) main.append(card('Education', timeline(arr(D.education), i => str(i.school), i => join(i.degree, i.period))));
+
+const table = (heads, rows) => el('div', {class: 'tw'}, el('table', {}, el('thead', {}, el('tr', {}, heads.map(h => el('th', {}, h)))), el('tbody', {}, rows.map(r => el('tr', {}, r.map(c => el('td', {}, c)))))));
+if (arr(D.variants).length) main.append(card('Usernames checked', table(['Username', 'Found on'], arr(D.variants).map(v => [el('span', {}, str(v.username), ' ', copyBtn(v.username)), str(v.found)]))));
+if (arr(D.unchecked).length) main.append(card('Not verified (check manually)', table(['Site', 'Username', 'Status', 'URL'], arr(D.unchecked).map(u => [str(u.site), str(u.username), str(u.status), link(u.url)]))));
+
+const M = D.method || {};
+main.append(card('Methodology', el('dl', {},
+  [['Date', M.date], ['Brief', M.brief], ['Browser', M.browser], ['Bulk check', M.bulk_check], ['Duration', M.duration], ['Sites', M.sites], ['Variants', M.variants]]
+    .filter(([, v]) => str(v) !== '').map(([k, v]) => [el('dt', {}, k), el('dd', {}, str(v))]))));
+</script>
+</body>
+</html>

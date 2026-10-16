@@ -1,0 +1,19 @@
+{
+  "demo": "Sample data for tests",
+  "subject": {"name": "Jane Example", "aliases": ["janeexample"], "headline": "Engineer at Example Corp",
+              "location": "Springfield", "summary": "Fictional subject used by the test-suite.",
+              "photo_credit": "Initials only"},
+  "contacts": [{"type": "website", "value": "https://example.com", "source": "https://example.com/about"}],
+  "profiles": [
+    {"site": "GitHub", "url": "https://github.com/janeexample", "username": "janeexample", "confidence": "high",
+     "reason": "Same name and links to example.com", "name": "Jane Example", "bio": "</script><script>alert(1)</script>",
+     "location": "Springfield", "followers": "120"},
+    {"site": "Reddit", "url": "https://reddit.com/user/janeexample", "username": "janeexample", "confidence": "low",
+     "reason": "Handle only"}
+  ],
+  "experience": [{"title": "Engineer", "org": "Example Corp", "period": "2020–", "source": "https://example.com/about"}],
+  "education": [],
+  "variants": [{"username": "janeexample", "found": 2}],
+  "unchecked": [{"site": "Instagram", "username": "janeexample", "status": "LOGIN", "url": "https://instagram.com"}],
+  "method": {"brief": "Jane Example, engineer", "browser": "none"}
+}

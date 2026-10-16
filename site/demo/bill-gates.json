@@ -1,0 +1,249 @@
+{
+  "demo": "Demo · generated 2026-10-16 · public figure · trimmed for publication · data may be outdated",
+  "subject": {
+    "name": "Bill Gates",
+    "aliases": [
+      "William Henry Gates III",
+      "@BillGates",
+      "@thisisbillgates",
+      "gatesnotes"
+    ],
+    "headline": "Chair, Gates Foundation · Founder, Breakthrough Energy · Co-founder, Microsoft",
+    "location": "Seattle, Washington, United States",
+    "photo": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fc/Bill_Gates_-_2023_-_P062021-967902_%28cropped%29.jpg/500px-Bill_Gates_-_2023_-_P062021-967902_%28cropped%29.jpg",
+    "summary": "Microsoft co-founder (CEO 1975–2000), now chair of the Gates Foundation and founder of Breakthrough Energy. His official site gatesnotes.com links to his main social accounts. The generic handles (billgates, bgates, bill_gates …) are taken on hundreds of sites by unrelated users; only profiles that could be verified were scored. This demo shows a selection.",
+    "photo_credit": "Photo: European Commission / Lukasz Kobus, CC BY 4.0, via Wikimedia Commons"
+  },
+  "contacts": [
+    {
+      "type": "website",
+      "value": "https://www.gatesnotes.com/",
+      "source": "https://www.gatesnotes.com/"
+    }
+  ],
+  "profiles": [
+    {
+      "site": "X / Twitter",
+      "url": "https://x.com/BillGates",
+      "username": "BillGates",
+      "confidence": "high",
+      "reason": "Verified; linked from gatesnotes.com; location Seattle, WA; links to gatesnot.es",
+      "name": "Bill Gates",
+      "bio": "Sharing things I'm learning through my foundation work and other interests.",
+      "location": "Seattle, WA",
+      "followers": "65.2M"
+    },
+    {
+      "site": "LinkedIn",
+      "url": "https://www.linkedin.com/in/williamhgates/",
+      "username": "williamhgates",
+      "confidence": "high",
+      "reason": "Linked from gatesnotes.com; Chair, Gates Foundation; Seattle; Microsoft co-founder in experience",
+      "name": "Bill Gates",
+      "bio": "Chair, Gates Foundation and Founder, Breakthrough Energy",
+      "location": "Seattle, Washington, United States",
+      "followers": "40,729,700"
+    },
+    {
+      "site": "Instagram",
+      "url": "https://www.instagram.com/thisisbillgates/",
+      "username": "thisisbillgates",
+      "confidence": "high",
+      "reason": "Linked from gatesnotes.com; same bio as X",
+      "name": "Bill Gates",
+      "bio": "Sharing things I'm learning through my foundation work and other interests.",
+      "followers": "12M"
+    },
+    {
+      "site": "YouTube",
+      "url": "https://www.youtube.com/@billgates",
+      "username": "billgates",
+      "confidence": "high",
+      "reason": "Linked from gatesnotes.com (youtube.com/user/thegatesnotes); channel 'Bill Gates' about his work",
+      "name": "Bill Gates",
+      "bio": "Hi, I'm Bill Gates. Tune in here to watch videos about my work."
+    },
+    {
+      "site": "Bluesky",
+      "url": "https://bsky.app/profile/billgates.bsky.social",
+      "username": "billgates.bsky.social",
+      "confidence": "high",
+      "reason": "Name matches; bio lists his focus areas; links to gatesnot.es/tgn like X",
+      "name": "Bill Gates",
+      "bio": "Global Health. Energy Innovation. Alzheimer's."
+    },
+    {
+      "site": "Goodreads",
+      "url": "https://www.goodreads.com/billgates",
+      "username": "billgates",
+      "confidence": "high",
+      "reason": "Author page listing his books (Source Code, How to Avoid a Climate Disaster, How to Prevent the Next Pandemic)",
+      "name": "Bill Gates"
+    },
+    {
+      "site": "Vimeo",
+      "url": "https://vimeo.com/billgates",
+      "username": "billgates",
+      "confidence": "medium",
+      "reason": "Account named 'The Gates Notes'; not linked from his site",
+      "name": "The Gates Notes"
+    },
+    {
+      "site": "Pinterest",
+      "url": "https://www.pinterest.com/gatesnotes/",
+      "username": "gatesnotes",
+      "confidence": "medium",
+      "reason": "Display name 'Gatesnotes'; no other detail visible",
+      "name": "Gatesnotes"
+    },
+    {
+      "site": "Substack",
+      "url": "https://billgates.substack.com/",
+      "username": "billgates",
+      "confidence": "low",
+      "reason": "Name 'Bill Gates' but no posts or links; launched ~7 months ago, may be a placeholder or impersonator",
+      "name": "Bill Gates"
+    },
+    {
+      "site": "GitHub",
+      "url": "https://github.com/billgates",
+      "username": "billgates",
+      "confidence": "low",
+      "reason": "Handle only, no name or bio"
+    }
+  ],
+  "experience": [
+    {
+      "title": "Co-chair",
+      "org": "Gates Foundation",
+      "period": "2000 – Present",
+      "source": "https://www.linkedin.com/in/williamhgates/details/experience/"
+    },
+    {
+      "title": "Founder",
+      "org": "Breakthrough Energy",
+      "period": "2015 – Present",
+      "source": "https://www.linkedin.com/in/williamhgates/details/experience/"
+    },
+    {
+      "title": "Co-founder",
+      "org": "Microsoft",
+      "period": "1975 – Present",
+      "source": "https://www.linkedin.com/in/williamhgates/details/experience/"
+    }
+  ],
+  "education": [],
+  "variants": [
+    {
+      "username": "billgates",
+      "found": 137
+    },
+    {
+      "username": "thisisbillgates",
+      "found": 17
+    },
+    {
+      "username": "gatesnotes",
+      "found": 11
+    },
+    {
+      "username": "thegatesnotes",
+      "found": 3
+    },
+    {
+      "username": "bill_gates",
+      "found": 78
+    },
+    {
+      "username": "bill.gates",
+      "found": 18
+    },
+    {
+      "username": "bill-gates",
+      "found": 51
+    },
+    {
+      "username": "realbillgates",
+      "found": 26
+    },
+    {
+      "username": "officialbillgates",
+      "found": 7
+    },
+    {
+      "username": "williamgates",
+      "found": 58
+    },
+    {
+      "username": "williamhgates",
+      "found": 9
+    },
+    {
+      "username": "bgates",
+      "found": 87
+    },
+    {
+      "username": "gatesbill",
+      "found": 40
+    },
+    {
+      "username": "billgates3",
+      "found": 33
+    },
+    {
+      "username": "thebillgates",
+      "found": 16
+    },
+    {
+      "username": "billgates1955",
+      "found": 13
+    }
+  ],
+  "unchecked": [
+    {
+      "site": "Reddit",
+      "username": "thisisbillgates, billgates",
+      "status": "LOGIN",
+      "url": "https://www.reddit.com"
+    },
+    {
+      "site": "Academia.edu",
+      "status": "WAF",
+      "url": "https://independent.academia.edu",
+      "username": "several variants"
+    },
+    {
+      "site": "Behance",
+      "status": "WAF",
+      "url": "https://www.behance.net",
+      "username": "several variants"
+    },
+    {
+      "site": "Codepen",
+      "status": "WAF",
+      "url": "https://codepen.io",
+      "username": "several variants"
+    },
+    {
+      "site": "Discord",
+      "status": "WAF",
+      "url": "https://discord.com",
+      "username": "several variants"
+    },
+    {
+      "site": "Fandom",
+      "status": "WAF",
+      "url": "https://www.fandom.com",
+      "username": "several variants"
+    }
+  ],
+  "method": {
+    "date": "2026-10-16",
+    "brief": "Bill Gates, former Microsoft CEO (confirmed: Microsoft co-founder, Gates Foundation chair, Seattle)",
+    "browser": "Browser extension in a signed-in Chrome for X, Instagram, Facebook, LinkedIn, TikTok and Threads; Reddit blocked",
+    "bulk_check": "done in 6m49s (604 CLAIMED, 52 UNRELIABLE, 1190 WAF, 178 UNKNOWN); hits on generic handles not opened",
+    "duration": "0h10m (including time waiting for the user)",
+    "sites": 412,
+    "variants": 16
+  }
+}
