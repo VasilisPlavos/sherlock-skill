@@ -24,12 +24,13 @@ Set the output folder (short ASCII slug of the subject) and find a working Pytho
 OUT="osint/bill-gates"; WORK="$OUT/.work"; mkdir -p "$WORK"
 date +%s > "$WORK/started"   # for the total duration in the report
 
-PY=""
+PY=""; OLD=""
 for c in python3 python "py -3"; do
-  $c -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1 && { PY="$c"; break; }
+  if $c -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then PY="$c"; break; fi
+  [ -z "$OLD" ] && v=$($c -c 'import platform; print(platform.python_version())' 2>/dev/null) && OLD="$c = Python $v"
 done
 echo "$PY" > "$WORK/py"
-[ -n "$PY" ] && $PY --version || echo "No Python 3.9+ found"
+[ -n "$PY" ] && $PY --version || echo "No Python 3.10+ found${OLD:+ (found: $OLD)}"
 ```
 
 **Shell variables do not survive between tool calls.** Every later snippet therefore starts by restoring them — keep that first line, and run every snippet from the same directory (paths are relative to it). `$PY` stays unquoted so `py -3` works.
@@ -38,6 +39,8 @@ No Python → never install on your own. Offer the user:
 
 - **Install it** (their approval): Windows `winget install -e --id Python.Python.3.12` (per-user, no admin; open a new shell afterwards), Debian `apt-get install -y python3`, macOS `brew install python`.
 - **Continue without Python**: skip step 3 (no bulk check); find accounts via web search and the browser checks in step 4; build the report by hand as described in step 6. The report states that the bulk check was not run.
+
+Only an older Python (below 3.10) → tell the user which one, and offer: install a current Python (their approval); try the old one anyway; adapt a copy of the script to run on it (the SHA-256 check in step 3 then reports a mismatch, which is expected); or continue without the bulk check. To use the old one, write its command to `"$WORK/py"` (e.g. `echo python3 > "$WORK/py"`).
 
 ## 2. Username variants (gate)
 
@@ -93,10 +96,19 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # surface the 3xx as an HTTPError instead of following it
 
 
+class FollowRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows 308 like 307 on every Python (urllib only does so from 3.11): '/user/x' -> '/user/x/'."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return super().redirect_request(req, fp, 307 if code == 308 else code, msg, headers, newurl)
+
+    http_error_308 = urllib.request.HTTPRedirectHandler.http_error_302
+
+
 @functools.lru_cache(maxsize=None)
 def opener(proxy, no_redirect=False):
     """Built once per (proxy, redirect mode) and shared by all threads."""
-    handlers = [NoRedirect] if no_redirect else []
+    handlers = [NoRedirect] if no_redirect else [FollowRedirects]
     if proxy:
         handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
     return urllib.request.build_opener(*handlers)
@@ -214,7 +226,7 @@ def check(info, user, args, row):
     if any(w in text for w in WAF):
         row.update(status="WAF", context="bot challenge page")
         return row
-    if not set(types) <= {"message", "status_code", "response_url"}:
+    if not types or not set(types) <= {"message", "status_code", "response_url"}:
         row.update(status="UNKNOWN", context=f"unknown errorType {types}")
         return row
     status = None
@@ -479,7 +491,7 @@ def main():
 if __name__ == "__main__":
     main()
 EOF
-$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/check.py" 96cec54632f6d25b77b3996756a4341f24b2811e2dc3541c367f29909eb55253
+$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/check.py" 102b1f93a751b8aac76e90c670c417bbd10099a0d4e4e77be9eb08b87f5f0004
 ```
 
 Run it. It takes several minutes for ~15 variants — longer than many shell tools' default timeout — so run it **in the background** and read progress from the log. **Never kill it** (no `kill`, `taskkill` or tool-side stop): wait for it to finish. If the user wants to stop early, they press Ctrl-C themselves; the finished rows are still written.
@@ -926,7 +938,7 @@ OUT="osint/bill-gates"; rm -rf "$OUT/.work"
 
 | Symptom | Check / fix |
 |---|---|
-| `$PY` is empty | No working Python 3.9+. Offer install (with approval) or continue without it — see step 1. Stdlib only, no pip packages needed. |
+| `$PY` is empty | No working Python 3.10+. Offer install (with approval) or continue without it — see step 1 (an older Python has more options there). Stdlib only, no pip packages needed. |
 | `$WORK` / `$OUT` empty, files written to `/` | The snippet ran without its first line; shell variables don't persist between tool calls. Re-run it with the restore line. |
 | `mkdir`, `<<'EOF'` or `command -v` fail | Not a bash shell (PowerShell/cmd). Use Git Bash/WSL, or translate — see the top of this guide. |
 | Windows: "Python was not found ... Microsoft Store" | A Store stub was picked up; re-run the detection loop in step 1, which tests by running. |

@@ -23,7 +23,7 @@ It asks whether to install for the current project or globally, or to use the st
 - `install.md` — install instructions for agents.
 - `site/` — GitHub Pages site.
 
-Development (Python 3.9+, standard library only):
+Development (Python 3.10+, standard library only):
 
     python tools/build_standalone.py          # regenerate site/sherlock.md and site/install.md
     python -m unittest discover -s tests -v   # tests

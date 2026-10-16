@@ -25,21 +25,32 @@ Outputs in `<OUT>`: `results.csv` (every request: variant, site, URL, status), `
 2. If the brief is thin, do a quick draft search first: web-search the name and each known username, open the profiles the user mentioned, collect extra handles, links and facts.
 3. Write back a short understanding: what the user said vs. what you assume or discovered (with sources). Ask the questions that matter, **one at a time** (e.g. "Is the Bill Gates in Seattle, the Microsoft co-founder, the right one?"), and stop. Continue only once the user confirms the brief.
 
-Find a working Python 3.9+. Run each candidate instead of only locating it: on Windows `python`/`python3` are often Microsoft Store stubs that exist on PATH but just ask to install.
+Find a working Python 3.10+. Run each candidate instead of only locating it: on Windows `python`/`python3` are often Microsoft Store stubs that exist on PATH but just ask to install.
 
 ```bash
-for c in python3 python "py -3"; do $c -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1 && { echo "$c"; break; }; done
+PY=""; OLD=""
+for c in python3 python "py -3"; do
+  if $c -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then PY="$c"; break; fi
+  [ -z "$OLD" ] && v=$($c -c 'import platform; print(platform.python_version())' 2>/dev/null) && OLD="$c = Python $v"
+done
+[ -n "$PY" ] && echo "$PY" || echo "No Python 3.10+ found${OLD:+ (found: $OLD)}"
 ```
 
 ```powershell
+$py = $null; $old = $null
 foreach ($c in 'python3', 'python', 'py -3') {
   $p = $c.Split(' ')
-  try { & $p[0] $p[1..9] -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>$null } catch { continue }
-  if ($LASTEXITCODE -eq 0) { $c; break }
+  try { & $p[0] $p[1..9] -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>$null } catch { continue }
+  if ($LASTEXITCODE -eq 0) { $py = $c; break }
+  if (-not $old) {
+    $v = & $p[0] $p[1..9] -c 'import platform; print(platform.python_version())' 2>$null
+    if ($LASTEXITCODE -eq 0 -and $v) { $old = "$c = Python $v" }
+  }
 }
+if ($py) { $py } elseif ($old) { "No Python 3.10+ found (found: $old)" } else { "No Python 3.10+ found" }
 ```
 
-The line printed is `<PY>`. Then create the output folder and record the start time (used for the report's duration):
+The line printed is `<PY>`, unless it starts with `No Python`. Then create the output folder and record the start time (used for the report's duration):
 
     <PY> "<SKILL_DIR>/scripts/check.py" --init "<OUT>"
 
@@ -47,6 +58,8 @@ No Python → never install on your own. Offer the user:
 
 - **Install it** (their approval): Windows `winget install -e --id Python.Python.3.12` (per-user, no admin; open a new shell afterwards), Debian `apt-get install -y python3`, macOS `brew install python`.
 - **Continue without Python**: skip step 3; find accounts via web search and the browser checks in step 4; build the report by hand (`references/report.md`, "Without Python"). The report states that the bulk check was not run.
+
+Only an older Python (below 3.10) → tell the user which one, and offer: install a current Python (their approval); try the old one anyway; adapt a copy of the script to run on it (never edit the installed skill); or continue without the bulk check.
 
 ## 2. Variants (gate)
 

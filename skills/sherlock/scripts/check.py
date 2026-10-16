@@ -24,10 +24,19 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # surface the 3xx as an HTTPError instead of following it
 
 
+class FollowRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows 308 like 307 on every Python (urllib only does so from 3.11): '/user/x' -> '/user/x/'."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return super().redirect_request(req, fp, 307 if code == 308 else code, msg, headers, newurl)
+
+    http_error_308 = urllib.request.HTTPRedirectHandler.http_error_302
+
+
 @functools.lru_cache(maxsize=None)
 def opener(proxy, no_redirect=False):
     """Built once per (proxy, redirect mode) and shared by all threads."""
-    handlers = [NoRedirect] if no_redirect else []
+    handlers = [NoRedirect] if no_redirect else [FollowRedirects]
     if proxy:
         handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
     return urllib.request.build_opener(*handlers)
@@ -145,7 +154,7 @@ def check(info, user, args, row):
     if any(w in text for w in WAF):
         row.update(status="WAF", context="bot challenge page")
         return row
-    if not set(types) <= {"message", "status_code", "response_url"}:
+    if not types or not set(types) <= {"message", "status_code", "response_url"}:
         row.update(status="UNKNOWN", context=f"unknown errorType {types}")
         return row
     status = None

@@ -38,6 +38,11 @@ class Handler(BaseHTTPRequestHandler):
         elif kind == "flaky":  # the account exists, but the prefix recheck gets blocked
             code = 200 if name in ("alice", "bill.gates") else 403 if name.startswith("bill.") else 404
             body = "page"
+        elif kind == "r308":  # '/r308/alice' -> 308 -> '/r308/alice/' (urllib follows 308 only from 3.11)
+            if name == "alice":
+                code, body, headers = 308, "", {"Location": "/r308/alice/"}
+            elif name == "alice/":
+                code, body = 200, "page"
         elif kind == "redir":
             if name == "alice":
                 code, body = 200, "page"
@@ -72,6 +77,8 @@ def manifest(base):
         "RegexSite": site("status", errorType="status_code", regexCheck="^[a-z]+$"),
         "RedirectSite": site("redir", errorType="response_url", errorUrl=base + "/home"),
         "FlakySite": site("flaky", errorType="status_code"),
+        "Redirect308Site": site("r308", errorType="status_code"),
+        "EmptyTypeSite": site("status", errorType=[]),
     }
 
 
@@ -85,6 +92,10 @@ EXPECTED = {
     ("alice", "RegexSite"): "CLAIMED", ("bill.gates", "RegexSite"): "ILLEGAL", ("josé", "RegexSite"): "ILLEGAL",
     ("alice", "RedirectSite"): "CLAIMED", ("bill.gates", "RedirectSite"): "AVAILABLE", ("josé", "RedirectSite"): "AVAILABLE",
     ("alice", "FlakySite"): "CLAIMED", ("bill.gates", "FlakySite"): "UNKNOWN", ("josé", "FlakySite"): "AVAILABLE",
+    ("alice", "Redirect308Site"): "CLAIMED", ("bill.gates", "Redirect308Site"): "AVAILABLE",
+    ("josé", "Redirect308Site"): "AVAILABLE",
+    ("alice", "EmptyTypeSite"): "UNKNOWN", ("bill.gates", "EmptyTypeSite"): "UNKNOWN",
+    ("josé", "EmptyTypeSite"): "UNKNOWN",
 }
 
 

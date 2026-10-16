@@ -2,7 +2,7 @@
 
 | Symptom | Check / fix |
 |---|---|
-| No working Python | No Python 3.9+. Offer install (with approval) or continue without it — see step 1. Stdlib only, no pip packages needed. |
+| No working Python | No Python 3.10+. Offer install (with approval) or continue without it — see step 1 (an older Python has more options there). Stdlib only, no pip packages needed. |
 | Windows: "Python was not found ... Microsoft Store" | A Store stub was picked up; re-run the detection in step 1, which tests by running. |
 | Files land in the wrong folder | Use the full `<OUT>` path in every command and quote paths that contain spaces. |
 | `check.log` unreadable or empty in PowerShell | Use `--log "<OUT>/check.log"` instead of `>` redirection (PowerShell writes UTF-16). |

@@ -24,12 +24,13 @@ Set the output folder (short ASCII slug of the subject) and find a working Pytho
 OUT="osint/bill-gates"; WORK="$OUT/.work"; mkdir -p "$WORK"
 date +%s > "$WORK/started"   # for the total duration in the report
 
-PY=""
+PY=""; OLD=""
 for c in python3 python "py -3"; do
-  $c -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1 && { PY="$c"; break; }
+  if $c -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then PY="$c"; break; fi
+  [ -z "$OLD" ] && v=$($c -c 'import platform; print(platform.python_version())' 2>/dev/null) && OLD="$c = Python $v"
 done
 echo "$PY" > "$WORK/py"
-[ -n "$PY" ] && $PY --version || echo "No Python 3.9+ found"
+[ -n "$PY" ] && $PY --version || echo "No Python 3.10+ found${OLD:+ (found: $OLD)}"
 ```
 
 **Shell variables do not survive between tool calls.** Every later snippet therefore starts by restoring them — keep that first line, and run every snippet from the same directory (paths are relative to it). `$PY` stays unquoted so `py -3` works.
@@ -38,6 +39,8 @@ No Python → never install on your own. Offer the user:
 
 - **Install it** (their approval): Windows `winget install -e --id Python.Python.3.12` (per-user, no admin; open a new shell afterwards), Debian `apt-get install -y python3`, macOS `brew install python`.
 - **Continue without Python**: skip step 3 (no bulk check); find accounts via web search and the browser checks in step 4; build the report by hand as described in step 6. The report states that the bulk check was not run.
+
+Only an older Python (below 3.10) → tell the user which one, and offer: install a current Python (their approval); try the old one anyway; adapt a copy of the script to run on it (the SHA-256 check in step 3 then reports a mismatch, which is expected); or continue without the bulk check. To use the old one, write its command to `"$WORK/py"` (e.g. `echo python3 > "$WORK/py"`).
 
 ## 2. Username variants (gate)
 
@@ -199,7 +202,7 @@ OUT="osint/bill-gates"; rm -rf "$OUT/.work"
 
 | Symptom | Check / fix |
 |---|---|
-| `$PY` is empty | No working Python 3.9+. Offer install (with approval) or continue without it — see step 1. Stdlib only, no pip packages needed. |
+| `$PY` is empty | No working Python 3.10+. Offer install (with approval) or continue without it — see step 1 (an older Python has more options there). Stdlib only, no pip packages needed. |
 | `$WORK` / `$OUT` empty, files written to `/` | The snippet ran without its first line; shell variables don't persist between tool calls. Re-run it with the restore line. |
 | `mkdir`, `<<'EOF'` or `command -v` fail | Not a bash shell (PowerShell/cmd). Use Git Bash/WSL, or translate — see the top of this guide. |
 | Windows: "Python was not found ... Microsoft Store" | A Store stub was picked up; re-run the detection loop in step 1, which tests by running. |
