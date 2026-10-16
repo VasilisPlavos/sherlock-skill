@@ -14,7 +14,7 @@ It asks whether to install for the current project or globally, or to use the st
 
 ## Use without installing
 
-    https://vasilisplavos.github.io/sherlock-skill/sherlock.md bill gates
+    Read https://vasilisplavos.github.io/sherlock-skill/sherlock.md and follow it to find the accounts of …
 
 ## Repository
 
