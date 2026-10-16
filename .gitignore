@@ -1,0 +1,5 @@
+docs/superpowers/
+.superpowers/
+osint/
+.claude/
+__pycache__/
