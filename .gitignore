@@ -1,6 +1,8 @@
-docs/superpowers/
-.superpowers/
-osint/
+# Agents related
 .claude/
-__pycache__/
 .playwright-mcp/
+/docs/superpowers/plans
+/docs/superpowers/specs
+
+# Python related
+__pycache__/
