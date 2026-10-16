@@ -68,6 +68,8 @@ import argparse, csv, functools, json, os, re, secrets, signal, string, sys, tim
 import urllib.error, urllib.parse, urllib.request
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
+__version__ = "1.0.0"
+
 MANIFEST = "https://data.sherlockproject.xyz"
 FALLBACK = "https://raw.githubusercontent.com/sherlock-project/sherlock/master/sherlock_project/resources/data.json"
 EXCLUSIONS = "https://raw.githubusercontent.com/sherlock-project/sherlock/refs/heads/exclusions/false_positive_exclusions.txt"
@@ -278,6 +280,17 @@ def interrupt(*_):
     raise KeyboardInterrupt
 
 
+def init_workdir(out_dir):
+    """Create <out_dir>/.work and record the run's start time once (used for the report's duration)."""
+    work = os.path.join(out_dir, ".work")
+    os.makedirs(work, exist_ok=True)
+    started = os.path.join(work, "started")
+    if not os.path.exists(started):
+        with open(started, "w", encoding="utf-8") as f:
+            f.write(str(int(time.time())))
+    return started
+
+
 def main():
     started = time.monotonic()
     for stream in (sys.stdout, sys.stderr):  # Windows defaults to cp1252: non-ASCII names would crash print()
@@ -293,7 +306,16 @@ def main():
     p.add_argument("--timeout", type=float, default=20)
     p.add_argument("--workers", type=int, default=20)
     p.add_argument("--append", action="store_true", help="add rows to an existing --out file")
+    p.add_argument("--log", help="write progress and findings to this file (UTF-8) instead of the console")
+    p.add_argument("--init", metavar="OUT", help="create OUT/.work, record the start time, and exit")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = p.parse_args()
+    if args.init:
+        print(init_workdir(args.init))
+        return
+    if args.log:  # PowerShell's '>' would write UTF-16 and wrap stderr lines; write the log ourselves
+        log = open(args.log, "w", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr = log
     users = list(args.usernames)
     if args.file:
         with open(args.file, encoding="utf-8-sig") as f:
@@ -301,6 +323,9 @@ def main():
     users = list(dict.fromkeys(u.strip().lstrip("@") for u in users if u.strip().lstrip("@")))
     if not users:
         p.error("no usernames given")
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    if os.path.isdir(os.path.join(out_dir, ".work")):  # skill/standalone layout: keep the start time for the report
+        init_workdir(out_dir)
     sites = load_sites(args)
     shapes = {}
     for u in users:
@@ -315,7 +340,8 @@ def main():
             if (ru := random_like(u, i)):
                 calib[(s, sh)] = pool.submit(probe, s, i, ru, args)
     jobs = [pool.submit(probe, s, i, u, args) for u in users for s, i in sites.items()]
-    print(f"{len(users)} usernames x {len(sites)} sites (+{len(calib)} calibration requests)", file=sys.stderr)
+    print(f"check.py {__version__}: {len(users)} usernames x {len(sites)} sites "
+          f"(+{len(calib)} calibration requests)", file=sys.stderr)
 
     def claimed_by_calibration(site, sh):
         f = calib.get((site, sh))
@@ -467,7 +493,7 @@ Write `"$OUT/report.json"` with this shape (omit what you don't have; arrays may
 
 ```json
 {
-  "subject": {"name": "", "aliases": [], "headline": "", "location": "", "photo": "https://...", "summary": ""},
+  "subject": {"name": "", "aliases": [], "headline": "", "location": "", "photo": "https://...", "photo_credit": "", "summary": ""},
   "contacts": [{"type": "email|phone|website", "value": "", "source": "https://..."}],
   "profiles": [{"site": "", "url": "", "username": "", "confidence": "high|medium|low", "reason": "",
                 "name": "", "bio": "", "location": "", "followers": ""}],
@@ -475,23 +501,17 @@ Write `"$OUT/report.json"` with this shape (omit what you don't have; arrays may
   "education": [{"school": "", "degree": "", "period": "", "source": ""}],
   "variants": [{"username": "", "found": 0}],
   "unchecked": [{"site": "", "username": "", "status": "WAF|UNKNOWN|UNRELIABLE|LOGIN", "url": ""}],
-  "method": {"date": "YYYY-MM-DD", "brief": "", "browser": "", "bulk_check": "done in 2m41s|not run (reason)",
-             "duration": "1h12m (including time waiting for the user)", "sites": 0, "variants": 0}
+  "method": {"brief": "", "browser": ""}
 }
 ```
 
-`method.bulk_check` takes the `took ...` line from the end of `check.log`. `method.duration` is the whole run so far, from step 1:
+`render_report.py` fills the run details you leave empty in `method`: `date`, `duration` (from `$WORK/started`), `bulk_check` (from the `took` line of `check.log`), `sites` and `variants` (from `results.csv`). Write `brief` and `browser` yourself.
 
-```bash
-OUT="osint/bill-gates"; WORK="$OUT/.work"
-s=$(( $(date +%s) - $(cat "$WORK/started") )); printf '%dh%02dm%02ds\n' $((s/3600)) $((s%3600/60)) $((s%60))
-```
-
-`subject.photo` is the image URL from the most confident profile that has a real photo (avatar or `og:image`; skip generated placeholders such as GitHub identicons, Gravatar defaults or initials avatars); the fill step downloads it once and embeds it in `report.html`, so the report keeps its photo offline and after the link expires (the URL is kept as `photo_source`).
+`subject.photo` is the image URL from the most confident profile that has a real photo (avatar or `og:image`; skip generated placeholders such as GitHub identicons, Gravatar defaults or initials avatars); the render step downloads it once and embeds it in `report.html`, so the report keeps its photo offline and after the link expires (the URL is kept as `photo_source`). `photo_credit` is optional text shown under the photo (author/license).
 
 `unchecked` gets one entry per site, not per row: blocked sites usually block every variant, so list them together (`"username": "billgates, bill.gates"`, `"url"` = the site's main URL).
 
-Write the template, then fill it:
+Write the template and the renderer, then render:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
@@ -540,6 +560,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+.demo{background:var(--soft);border-bottom:1px solid var(--line);padding:10px 16px;text-align:center;font-size:14px}
+.credit{font-size:11px;color:var(--muted);margin-top:4px}
 </style>
 </head>
 <body>
@@ -595,8 +617,10 @@ const photo = /^data:image\/(png|jpeg|gif|webp);base64,/i.test(str(S.photo)) ? s
 const name = str(S.name), aliases = [].concat(S.aliases || []).map(str).filter(Boolean);
 const initials = (name || '?').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
 document.title = (name || 'Profile') + ' – report';
+if (str(D.demo)) document.body.prepend(el('div', {class: 'demo', role: 'note'}, str(D.demo)));
 document.getElementById('side').append(el('div', {class: 'card'},
   photo ? el('img', {class: 'avatar', src: photo, alt: '', referrerpolicy: 'no-referrer'}) : el('div', {class: 'avatar'}, initials),
+  S.photo_credit ? el('div', {class: 'credit'}, str(S.photo_credit)) : null,
   el('h1', {}, name || 'Unknown'),
   aliases.length ? el('div', {class: 'muted'}, 'aka ' + aliases.join(', ')) : null,
   S.headline ? el('div', {}, str(S.headline)) : null,
@@ -650,16 +674,112 @@ main.append(card('Methodology', el('dl', {},
 </html>
 EOF
 
-$PY - "$WORK/template.html" "$OUT/report.json" "$OUT/report.html" <<'EOF'
-import base64, json, sys, urllib.request
-tpl = open(sys.argv[1], encoding="utf-8-sig").read()
-data = json.load(open(sys.argv[2], encoding="utf-8-sig"))
-# Embed the photo: CDN links (LinkedIn, Instagram, ...) expire, and a remote image pings its site on every open.
-subject = data.get("subject") or {}
-photo = subject.get("photo")
-if isinstance(photo, str) and photo.startswith(("http://", "https://")):
+cat > "$WORK/render_report.py" <<'EOF'
+"""Render <OUT>/report.json into <OUT>/report.html using the report template. Python stdlib only."""
+import argparse, base64, csv, datetime, json, os, re, sys, time, urllib.request
+
+__version__ = "1.0.0"
+UA = "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"
+DEFAULT_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "template.html")
+OBJECTS = ("subject", "method")
+LISTS = ("contacts", "profiles", "experience", "education", "variants", "unchecked")
+CONFIDENCE = ("high", "medium", "low")
+
+
+class ReportError(Exception):
+    pass
+
+
+def load_report(path):
     try:
-        req = urllib.request.Request(photo, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"})
+        with open(path, encoding="utf-8-sig") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        raise ReportError(f"invalid JSON in {path}: {e}")
+
+
+def validate(data):
+    """Catch the shapes that would make the page render blank, with a message that names the field."""
+    if not isinstance(data, dict):
+        raise ReportError("report.json must be a JSON object")
+    for key in OBJECTS:
+        if key in data and not isinstance(data[key], dict):
+            raise ReportError(f"'{key}' must be an object, got {type(data[key]).__name__}")
+    for key in LISTS:
+        if key not in data:
+            continue
+        if not isinstance(data[key], list):
+            raise ReportError(f"'{key}' must be a list, got {type(data[key]).__name__}")
+        for i, item in enumerate(data[key]):
+            if not isinstance(item, dict):
+                raise ReportError(f"'{key}[{i}]' must be an object, got {type(item).__name__}")
+    for i, p in enumerate(data.get("profiles", [])):
+        if str(p.get("confidence", "")).lower() not in CONFIDENCE:
+            raise ReportError(f"'profiles[{i}].confidence' must be high, medium or low, got {p.get('confidence')!r}")
+
+
+def fmt_duration(seconds):
+    s = max(int(seconds), 0)
+    return f"{s // 3600}h{s % 3600 // 60:02d}m{s % 60:02d}s"
+
+
+def read_log(path):
+    """check.log as text; tolerates a UTF-16 file (PowerShell '>' redirection)."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16", "replace")
+    return raw.decode("utf-8-sig", "replace")
+
+
+def bulk_check(out_dir, ran):
+    text = read_log(os.path.join(out_dir, "check.log")) or ""
+    took = re.findall(r"(?m)^took (\S+)\s*$", text)
+    if took:
+        return f"done in {took[-1]}" + (" (partial: stopped early)" if "PARTIAL:" in text else "")
+    return "done" if ran else "not run"
+
+
+def csv_counts(out_dir):
+    try:
+        with open(os.path.join(out_dir, "results.csv"), encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+    except OSError:
+        return None
+    return len({r.get("site") for r in rows}), len({r.get("username") for r in rows})
+
+
+def fill_method(data, out_dir, now=None):
+    """Fill only the method fields the agent left empty."""
+    now = time.time() if now is None else now
+    auto = {"date": datetime.date.fromtimestamp(now).isoformat()}
+    try:
+        with open(os.path.join(out_dir, ".work", "started"), encoding="utf-8") as f:
+            started = int(f.read().strip())
+        auto["duration"] = fmt_duration(now - started) + " (including time waiting for the user)"
+    except (OSError, ValueError):
+        pass
+    counts = csv_counts(out_dir)
+    auto["bulk_check"] = bulk_check(out_dir, counts is not None)
+    if counts:
+        auto["sites"], auto["variants"] = counts
+    method = data.setdefault("method", {})
+    for key, value in auto.items():
+        if str(method.get(key, "")).strip() == "":
+            method[key] = value
+
+
+def embed_photo(data):
+    """Embed the photo: CDN links (LinkedIn, Instagram, ...) expire, and a remote image pings its site on every open."""
+    subject = data.get("subject") or {}
+    photo = subject.get("photo")
+    if not (isinstance(photo, str) and photo.startswith(("http://", "https://"))):
+        return
+    try:
+        req = urllib.request.Request(photo, headers={"User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             kind, body = r.headers.get_content_type(), r.read(2_000_001)
         if kind in ("image/jpeg", "image/png", "image/gif", "image/webp") and len(body) <= 2_000_000:
@@ -668,9 +788,44 @@ if isinstance(photo, str) and photo.startswith(("http://", "https://")):
             print(f"warning: photo not embedded ({kind}, {len(body)} bytes); keeping the link", file=sys.stderr)
     except Exception as e:
         print(f"warning: photo not embedded ({e}); keeping the link", file=sys.stderr)
-blob = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")  # no '<' at all: page text can't break out of the data block
-open(sys.argv[3], "w", encoding="utf-8").write(tpl.replace("__REPORT_DATA__", blob))
+
+
+def render(data, template):
+    if template.count("__REPORT_DATA__") != 1:
+        raise ReportError("template must contain __REPORT_DATA__ exactly once")
+    blob = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")  # no '<' at all: page text can't break out
+    return template.replace("__REPORT_DATA__", blob)
+
+
+def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):  # Windows defaults to cp1252
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    p = argparse.ArgumentParser(description="Render <OUT>/report.json into <OUT>/report.html.")
+    p.add_argument("out", help="output folder, e.g. osint/bill-gates")
+    p.add_argument("--template", default=DEFAULT_TEMPLATE, help="report template (default: the skill's assets)")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    args = p.parse_args(argv)
+    try:
+        data = load_report(os.path.join(args.out, "report.json"))
+        validate(data)
+        fill_method(data, args.out)
+        embed_photo(data)
+        with open(args.template, encoding="utf-8-sig") as f:
+            html = render(data, f.read())
+        dest = os.path.join(args.out, "report.html")
+        with open(dest, "w", encoding="utf-8", newline="\n") as f:
+            f.write(html)
+    except (ReportError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(os.path.abspath(dest))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 EOF
+$PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
 ```
 
 Without Python: write `template.html` as above with your file tool, then create `report.html` from it yourself — replace `__REPORT_DATA__` with the `report.json` content, with every `<` written as `\u003c` (backslash, u, 0, 0, 3, c). Embed the photo as a `data:image/...;base64,` URI if you have a base64 tool (`base64 -w0`, PowerShell `[Convert]::ToBase64String`), else keep the link. Set `"method": {"bulk_check": "not run (no Python)", ...}` so the report says so.
@@ -697,7 +852,7 @@ OUT="osint/bill-gates"; rm -rf "$OUT/.work"
 | Many `WAF` (403/429) | Rate-limited or bot-blocked: lower `--workers` (e.g. 5), wait, or use `--proxy`; recheck the important ones in a browser. |
 | Obvious false positive | Site changed its error page. Mark it low/ignore; calibration (`UNRELIABLE`) only catches sites that claim *any* name of that shape. |
 | Browser lands on a login wall | Ask the user to sign in themselves, or list the site under "Not verified". |
-| Fill step fails with `JSONDecodeError` | `report.json` is invalid — validate with `$PY -m json.tool "$OUT/report.json"`. |
+| Render step prints `error: ...` | The message names the field; fix `report.json` against the schema in step 6 and rerun. |
 | `report.html` opens blank | Open the browser console; usually a field has an unexpected shape (e.g. an object where text is expected). Fix `report.json` against the schema. |
 
 ## Notes
