@@ -78,8 +78,13 @@ Run it. It takes several minutes for ~15 variants — longer than many shell too
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
-$PY "$WORK/check.py" --file "$OUT/usernames.txt" --out "$OUT/results.csv" > "$OUT/check.log" 2>&1
-tail -n 3 "$OUT/check.log"
+$PY "$WORK/check.py" --file "$OUT/usernames.txt" --out "$OUT/results.csv" --log "$OUT/check.log"
+```
+
+Use `--log`, not shell redirection. Read progress with:
+
+```bash
+OUT="osint/bill-gates"; tail -n 3 "$OUT/check.log"
 ```
 
 The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. Hits that could not be fully verified (a recheck that was blocked or failed, or a run stopped with Ctrl-C) are moved to `UNKNOWN`, and the header says how many; only a stopped run is marked `PARTIAL`.
@@ -208,7 +213,8 @@ OUT="osint/bill-gates"; rm -rf "$OUT/.work"
 | `$WORK` / `$OUT` empty, files written to `/` | The snippet ran without its first line; shell variables don't persist between tool calls. Re-run it with the restore line. |
 | `mkdir`, `<<'EOF'` or `command -v` fail | Not a bash shell (PowerShell/cmd). Use Git Bash/WSL, or translate — see the top of this guide. |
 | Windows: "Python was not found ... Microsoft Store" | A Store stub was picked up; re-run the detection loop in step 1, which tests by running. |
-| Check stopped early (`PARTIAL` in the log) | `results.csv` holds the finished rows. Usernames are checked one after another, so the missing usernames are those with no rows (or fewer rows than the rest). Put only those in `"$OUT/usernames-rest.txt"` and run `--file "$OUT/usernames-rest.txt" --out "$OUT/results.csv" --append > "$OUT/check-rest.log" 2>&1` in the background. The report reads only `check.log`, so set `method.bulk_check` yourself (both run times). |
+| `check.log` unreadable or empty in PowerShell | Use `--log "$OUT/check.log"` instead of `>` redirection (PowerShell writes UTF-16). |
+| Check stopped early (`PARTIAL` in the log) | `results.csv` holds the finished rows. Usernames are checked one after another, so the missing usernames are those with no rows (or fewer rows than the rest). Put only those in `"$OUT/usernames-rest.txt"` and run `--file "$OUT/usernames-rest.txt" --out "$OUT/results.csv" --append --log "$OUT/check-rest.log"` in the background. The report reads only `check.log`, so set `method.bulk_check` yourself (both run times). |
 | Manifest download fails | Both URLs blocked/offline → pass a saved copy with `--data data.json`, or `--proxy`. |
 | Many `UNKNOWN` (timeouts) | Slow network: `--timeout 40`; lower `--workers`. |
 | Many `WAF` (403/429) | Rate-limited or bot-blocked: lower `--workers` (e.g. 5), wait, or use `--proxy`; recheck the important ones in a browser. |

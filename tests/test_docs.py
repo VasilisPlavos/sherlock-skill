@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 
 from helpers import ROOT, read
@@ -19,6 +20,30 @@ class ResumeAdvice(unittest.TestCase):
                        if l.startswith("| Check stopped early"))
             self.assertNotIn("--site X", row, rel)
             self.assertIn("missing usernames", row, rel)
+
+
+class StandaloneMatchesSkill(unittest.TestCase):  # the standalone prose is kept in line with SKILL.md by hand
+    def setUp(self):
+        self.text = read(os.path.join(ROOT, "standalone", "sherlock.src.md"))
+        self.blocks = re.findall(r"```bash\n(.*?)```", self.text, re.S)
+
+    def test_check_uses_log_flag(self):  # PowerShell's '>' writes UTF-16
+        self.assertIn('--log "$OUT/check.log"', self.text)
+        self.assertNotIn('> "$OUT/check.log"', self.text)
+
+    def test_background_run_has_no_tail(self):
+        run = next(b for b in self.blocks if '--log "$OUT/check.log"' in b)
+        self.assertNotIn("tail", run)
+        self.assertTrue(any('tail -n 3 "$OUT/check.log"' in b for b in self.blocks))
+
+    def test_resume_uses_its_own_log(self):
+        row = next(l for l in self.text.splitlines() if l.startswith("| Check stopped early"))
+        self.assertIn('--log "$OUT/check-rest.log"', row)
+        self.assertNotIn("2>&1", row)
+
+    def test_powershell_log_row(self):
+        self.assertTrue(any(l.startswith("| `check.log` unreadable or empty in PowerShell")
+                            for l in self.text.splitlines()))
 
 
 class Workflow(unittest.TestCase):
