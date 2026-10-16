@@ -60,7 +60,7 @@ Skipped when continuing without Python. It takes several minutes for ~15 variant
 
 Use `--log`, not shell redirection. **Never kill it** (no `kill`, `taskkill`, `Stop-Process` or tool-side stop): wait for it to finish. If the user wants to stop early, they press Ctrl-C themselves; the finished rows are still written.
 
-Read progress with `tail -n 3 "<OUT>/check.log"` (PowerShell: `Get-Content "<OUT>/check.log" -Tail 3`). The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. After a Ctrl-C the output is marked `PARTIAL` and hits that could not be fully verified are moved to `UNKNOWN`.
+Read progress with `tail -n 3 "<OUT>/check.log"` (PowerShell: `Get-Content "<OUT>/check.log" -Tail 3`). The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. Hits that could not be fully verified (a recheck that was blocked or failed, or a run stopped with Ctrl-C) are moved to `UNKNOWN`, and the header says how many; only a stopped run is marked `PARTIAL`.
 
 - `--site GitHub --site Reddit` — only those sites (also overrides exclusions/NSFW for them).
 - `--nsfw` — include adult sites; only when the user asks.

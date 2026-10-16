@@ -35,6 +35,9 @@ class Handler(BaseHTTPRequestHandler):
             code, body = 200, "page"
         elif kind == "prefix":  # resolves 'bill.<anything>' to the account 'bill'
             code, body = (200 if name == "alice" or name.split(".")[0] == "bill" else 404), "page"
+        elif kind == "flaky":  # the account exists, but the prefix recheck gets blocked
+            code = 200 if name in ("alice", "bill.gates") else 403 if name.startswith("bill.") else 404
+            body = "page"
         elif kind == "redir":
             if name == "alice":
                 code, body = 200, "page"
@@ -68,6 +71,7 @@ def manifest(base):
         "PrefixSite": site("prefix", errorType="status_code"),
         "RegexSite": site("status", errorType="status_code", regexCheck="^[a-z]+$"),
         "RedirectSite": site("redir", errorType="response_url", errorUrl=base + "/home"),
+        "FlakySite": site("flaky", errorType="status_code"),
     }
 
 
@@ -80,6 +84,7 @@ EXPECTED = {
     ("alice", "PrefixSite"): "CLAIMED", ("bill.gates", "PrefixSite"): "UNRELIABLE", ("josé", "PrefixSite"): "AVAILABLE",
     ("alice", "RegexSite"): "CLAIMED", ("bill.gates", "RegexSite"): "ILLEGAL", ("josé", "RegexSite"): "ILLEGAL",
     ("alice", "RedirectSite"): "CLAIMED", ("bill.gates", "RedirectSite"): "AVAILABLE", ("josé", "RedirectSite"): "AVAILABLE",
+    ("alice", "FlakySite"): "CLAIMED", ("bill.gates", "FlakySite"): "UNKNOWN", ("josé", "FlakySite"): "AVAILABLE",
 }
 
 
@@ -131,6 +136,11 @@ class EndToEnd(unittest.TestCase):
         self.assertRegex(log, r"(?m)^took \d+m\d{2}s$")
         self.assertIn("[+] alice", log)
         self.assertEqual(self.proc.stdout, "")
+
+    def test_inconclusive_recheck_is_not_partial(self):  # a PARTIAL mark would make the report say "stopped early"
+        log = read(self.log)
+        self.assertIn("Findings (after calibration): 1 unconfirmed hits moved to UNKNOWN", log)
+        self.assertNotIn("PARTIAL:", log)
 
     def test_started_written_when_work_dir_exists(self):
         self.assertRegex(read(os.path.join(self.out, ".work", "started")).strip(), r"^\d+$")

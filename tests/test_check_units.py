@@ -119,6 +119,59 @@ class CollectFinished(unittest.TestCase):
         self.assertEqual(len(rows), 2)
 
 
+def hit(username):
+    return row("S", "CLAIMED", username)
+
+
+class Settle(unittest.TestCase):
+    def test_inconclusive_recheck_moves_to_unknown(self):
+        for status in ("WAF", "UNKNOWN", "ILLEGAL"):
+            r = hit("bill.gates")
+            n = check.settle([r], [(r, "bill.x", done({"status": status}))], {}, {id(r)}, False)
+            self.assertEqual((n, r["status"]), (1, "UNKNOWN"), status)
+            self.assertIn("inconclusive", r["context"])
+
+    def test_available_recheck_confirms(self):
+        r = hit("bill.gates")
+        self.assertEqual(check.settle([r], [(r, "bill.x", done({"status": "AVAILABLE"}))], {}, {id(r)}, False), 0)
+        self.assertEqual(r["status"], "CLAIMED")
+
+    def test_claimed_recheck_is_unreliable(self):
+        r = hit("bill.gates")
+        self.assertEqual(check.settle([r], [(r, "bill.x", done({"status": "CLAIMED"}))], {}, {id(r)}, False), 0)
+        self.assertEqual(r["status"], "UNRELIABLE")
+
+    def test_interrupted_before_calibration(self):
+        r = hit("alice")
+        self.assertEqual(check.settle([r], [], {("S", ""): Future()}, {id(r)}, True), 1)
+        self.assertEqual(r["status"], "UNKNOWN")
+        self.assertIn("before calibration", r["context"])
+
+    def test_pending_calibration_without_interrupt_keeps_hit(self):
+        r = hit("alice")
+        self.assertEqual(check.settle([r], [], {("S", ""): Future()}, {id(r)}, False), 0)
+        self.assertEqual(r["status"], "CLAIMED")
+
+    def test_interrupted_before_recheck_was_queued(self):
+        sep, plain = hit("bill.gates"), hit("alice")
+        self.assertEqual(check.settle([sep, plain], [], {}, set(), True), 1)
+        self.assertEqual(sep["status"], "UNKNOWN")
+        self.assertIn("interrupted before the prefix recheck", sep["context"])
+        self.assertEqual(plain["status"], "CLAIMED")
+
+    def test_counted_once(self):
+        r = hit("bill.gates")
+        self.assertEqual(check.settle([r], [(r, "bill.x", Future())], {}, set(), True), 1)
+
+
+class FindingsNote(unittest.TestCase):
+    def test_notes(self):
+        self.assertEqual(check.findings_note(False, 9, 9, 2), " 2 unconfirmed hits moved to UNKNOWN")
+        self.assertEqual(check.findings_note(True, 5, 9, 1), " PARTIAL: 5/9 checked, 1 unconfirmed hits moved to UNKNOWN")
+        self.assertEqual(check.findings_note(True, 5, 9, 0), " PARTIAL: 5/9 checked")
+        self.assertEqual(check.findings_note(False, 9, 9, 0), "")
+
+
 class Cli(unittest.TestCase):
     def test_version(self):
         r = run_check("--version")

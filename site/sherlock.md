@@ -309,6 +309,50 @@ def collect_finished(jobs, rows):
     return len(new)
 
 
+def calibration_claimed(calib, site, sh):
+    f = calib.get((site, sh))
+    return bool(f and f.done() and not f.cancelled() and f.result()["status"] == "CLAIMED")
+
+
+def settle(rows, rechecks, calib, handled, interrupted):
+    """Final statuses after the run. A hit stays CLAIMED only if its calibration and (for names with
+    separators) its prefix recheck both completed and passed. Returns how many hits moved to UNKNOWN."""
+    unverified = 0
+
+    def unconfirm(r, why):
+        nonlocal unverified
+        if r["status"] == "CLAIMED":  # each hit counts once
+            r.update(status="UNKNOWN", context=why)
+            unverified += 1
+
+    for r, ru, f in rechecks:
+        if not f.done() or f.cancelled():
+            unconfirm(r, "interrupted before the prefix recheck")
+        elif (status := f.result()["status"]) == "CLAIMED":
+            if r["status"] == "CLAIMED":
+                r.update(status="UNRELIABLE", context=f"site also 'finds' {ru}")
+        elif status != "AVAILABLE":
+            unconfirm(r, f"prefix recheck inconclusive ({status})")
+    for r in rows:
+        if r["status"] in ("CLAIMED", "AVAILABLE") and calibration_claimed(calib, r["site"], shape(r["username"])):
+            r.update(status="UNRELIABLE", context="random username of the same shape also reported as existing")
+    if interrupted:
+        for r in rows:
+            f = calib.get((r["site"], shape(r["username"])))
+            if f and (not f.done() or f.cancelled()):
+                unconfirm(r, "interrupted before calibration")
+            elif shape(r["username"]) and id(r) not in handled:
+                unconfirm(r, "interrupted before the prefix recheck")
+    return unverified
+
+
+def findings_note(interrupted, checked, total, unverified):
+    moved = f"{unverified} unconfirmed hits moved to UNKNOWN" if unverified else ""
+    if interrupted:
+        return f" PARTIAL: {checked}/{total} checked" + (f", {moved}" if moved else "")
+    return f" {moved}" if moved else ""
+
+
 def interrupt(*_):
     raise KeyboardInterrupt
 
@@ -382,8 +426,7 @@ def main():
           f"(+{len(calib)} calibration requests)", file=sys.stderr)
 
     def claimed_by_calibration(site, sh):
-        f = calib.get((site, sh))
-        return bool(f and f.done() and not f.cancelled() and f.result()["status"] == "CLAIMED")
+        return calibration_claimed(calib, site, sh)
 
     # Some sites resolve 'bill.<anything>' to the account 'bill'. As each separated hit arrives, re-probe it
     # with the first word kept and the rest random; if that is "found" too, the hit means nothing.
@@ -395,7 +438,9 @@ def main():
             ru = random_like(r["username"], sites[r["site"]], keep_first=True)
             if ru and ru != r["username"]:
                 rechecks.append((r, ru, pool.submit(probe, r["site"], sites[r["site"]], ru, args)))
+        handled.add(id(r))  # last: a Ctrl-C before this leaves the hit unconfirmed (see settle)
 
+    handled = set()
     rows, interrupted = [], False
     try:
         track(jobs, rows, calib.values(), on_claimed=queue_recheck)
@@ -408,17 +453,7 @@ def main():
         collect_finished(jobs, rows)
     pool.shutdown(wait=not interrupted, cancel_futures=True)
 
-    unverified = 0
-    for r, ru, f in rechecks:
-        if not f.done() or f.cancelled():
-            if r["status"] == "CLAIMED":  # never confirmed: keep it out of the [+] list
-                r.update(status="UNKNOWN", context="interrupted before the prefix recheck")
-                unverified += 1
-        elif f.result()["status"] == "CLAIMED":
-            r.update(status="UNRELIABLE", context=f"site also 'finds' {ru}")
-    for r in rows:
-        if r["status"] in ("CLAIMED", "AVAILABLE") and claimed_by_calibration(r["site"], shape(r["username"])):
-            r.update(status="UNRELIABLE", context="random username of the same shape also reported as existing")
+    unverified = settle(rows, rechecks, calib, handled, interrupted)
     rows.sort(key=lambda r: (r["username"], r["site"].lower()))
     fields = ["username", "site", "url", "status", "http", "ms", "context"]
     append = args.append and os.path.exists(args.out)
@@ -427,11 +462,7 @@ def main():
         if not append:
             w.writeheader()
         w.writerows(rows)
-    note = ""
-    if interrupted:
-        note = f" PARTIAL: {len(rows)}/{len(jobs)} checked"
-        note += f", {unverified} unconfirmed hits moved to UNKNOWN" if unverified else ""
-    print("\nFindings (after calibration):" + note)
+    print("\nFindings (after calibration):" + findings_note(interrupted, len(rows), len(jobs), unverified))
     for r in rows:
         if r["status"] == "CLAIMED":
             print(f"[+] {r['username']:<20} {r['site']:<22} {r['url']}")
@@ -448,7 +479,7 @@ def main():
 if __name__ == "__main__":
     main()
 EOF
-$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/check.py" ee6a2835b178de550465e52685eb7a40bf844f85711d7c6d6ee0aa8e0183d2a4
+$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/check.py" 96cec54632f6d25b77b3996756a4341f24b2811e2dc3541c367f29909eb55253
 ```
 
 Run it. It takes several minutes for ~15 variants — longer than many shell tools' default timeout — so run it **in the background** and read progress from the log. **Never kill it** (no `kill`, `taskkill` or tool-side stop): wait for it to finish. If the user wants to stop early, they press Ctrl-C themselves; the finished rows are still written.
@@ -459,7 +490,7 @@ $PY "$WORK/check.py" --file "$OUT/usernames.txt" --out "$OUT/results.csv" > "$OU
 tail -n 3 "$OUT/check.log"
 ```
 
-The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. After a Ctrl-C the output is marked `PARTIAL` and hits that could not be fully verified are moved to `UNKNOWN`.
+The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. Hits that could not be fully verified (a recheck that was blocked or failed, or a run stopped with Ctrl-C) are moved to `UNKNOWN`, and the header says how many; only a stopped run is marked `PARTIAL`.
 
 - `--site GitHub --site Reddit` — only those sites (also overrides exclusions/NSFW for them).
 - `--nsfw` — include adult sites; only when the user asks.

@@ -79,7 +79,7 @@ $PY "$WORK/check.py" --file "$OUT/usernames.txt" --out "$OUT/results.csv" > "$OU
 tail -n 3 "$OUT/check.log"
 ```
 
-The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. After a Ctrl-C the output is marked `PARTIAL` and hits that could not be fully verified are moved to `UNKNOWN`.
+The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 2140/7200 (30%)  43 req/s  ETA 1m58s  potential findings 6` — relay the ETA to the user. Potential findings can still turn out `UNRELIABLE`; the final `[+]` list after "Findings (after calibration)" is the one to use. Hits that could not be fully verified (a recheck that was blocked or failed, or a run stopped with Ctrl-C) are moved to `UNKNOWN`, and the header says how many; only a stopped run is marked `PARTIAL`.
 
 - `--site GitHub --site Reddit` — only those sites (also overrides exclusions/NSFW for them).
 - `--nsfw` — include adult sites; only when the user asks.
