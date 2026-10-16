@@ -54,6 +54,15 @@ class RenderCli(unittest.TestCase):
         self.assertNotIn("<script>alert", html)
         self.assertEqual(extract(html)["profiles"][0]["bio"], "</script><script>alert(1)</script>")
 
+    def test_default_template_renders_sample(self):
+        shutil.copy(SAMPLE, os.path.join(self.out, "report.json"))
+        r = self.run_render(template=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        html = self.html()
+        self.assertEqual(extract(html)["subject"]["name"], "Jane Example")
+        self.assertIn("D.demo", html)
+        self.assertIn("photo_credit", html)
+
     def test_method_is_filled_from_run_files(self):
         self.write(".work/started", str(int(time.time()) - 3725))
         self.write("check.log", "check.py 1.0.0: 2 usernames x 3 sites\nFindings (after calibration):\ntook 2m41s\n")

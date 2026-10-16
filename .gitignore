@@ -3,3 +3,4 @@ docs/superpowers/
 osint/
 .claude/
 __pycache__/
+.playwright-mcp/
