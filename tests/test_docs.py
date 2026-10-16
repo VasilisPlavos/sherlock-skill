@@ -41,6 +41,13 @@ class StandaloneMatchesSkill(unittest.TestCase):  # the standalone prose is kept
         self.assertIn('--log "$OUT/check-rest.log"', row)
         self.assertNotIn("2>&1", row)
 
+    def test_render_runs_apart_from_the_file_checks(self):  # a failed check must be seen before rendering
+        render = next(b for b in self.blocks if '"$WORK/render_report.py" "$OUT"' in b)
+        self.assertNotIn("<<'EOF'", render)
+
+    def test_proxy_advice_comes_before_the_render_command(self):  # else the photo is already fetched directly
+        self.assertLess(self.text.index("pass the same `--proxy`"), self.text.index('"$WORK/render_report.py" "$OUT"'))
+
     def test_powershell_log_row(self):
         self.assertTrue(any(l.startswith("| `check.log` unreadable or empty in PowerShell")
                             for l in self.text.splitlines()))

@@ -179,7 +179,7 @@ Write `"$OUT/report.json"` with this shape (omit what you don't have; arrays may
 
 `unchecked` gets one entry per site, not per row: blocked sites usually block every variant, so list them together (`"username": "billgates, bill.gates"`, `"url"` = the site's main URL).
 
-Write the template and the renderer, then render:
+Write the template and the renderer:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
@@ -190,10 +190,14 @@ EOF
 cat > "$WORK/render_report.py" <<'EOF'
 {{file:skills/sherlock/scripts/render_report.py}}
 EOF
-$PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
 ```
 
-If the check ran through `--proxy`, pass the same `--proxy` here; the photo download uses it.
+Only if both check lines printed nothing, render. If the check ran through `--proxy`, pass the same `--proxy` here; the photo download uses it.
+
+```bash
+OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
+$PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
+```
 
 Without Python: write `template.html` as above with your file tool, then create `report.html` from it yourself — replace `__REPORT_DATA__` with the `report.json` content, with every `<` written as `\u003c` (backslash, u, 0, 0, 3, c). Embed the photo as a `data:image/...;base64,` URI if you have a base64 tool (`base64 -w0`, PowerShell `[Convert]::ToBase64String`), else keep the link. Set `"method": {"bulk_check": "not run (no Python)", ...}` so the report says so.
 

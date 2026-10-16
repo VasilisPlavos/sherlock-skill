@@ -491,7 +491,7 @@ def main():
 if __name__ == "__main__":
     main()
 EOF
-$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/check.py" 102b1f93a751b8aac76e90c670c417bbd10099a0d4e4e77be9eb08b87f5f0004
+$PY -c 'import hashlib,sys,pathlib; d=pathlib.Path(sys.argv[1]).read_bytes().replace(bytes([13,10]),bytes([10])); d=d[3:] if d[:3]==bytes([239,187,191]) else d; d=d.rstrip(bytes([10]))+bytes([10]); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else sys.argv[3])' "$WORK/check.py" 102b1f93a751b8aac76e90c670c417bbd10099a0d4e4e77be9eb08b87f5f0004 "error: $WORK/check.py was not written verbatim; write it again exactly as shown in this guide"
 ```
 
 Run it. It takes several minutes for ~15 variants — longer than many shell tools' default timeout — so run it **in the background** and read progress from the log. **Never kill it** (no `kill`, `taskkill` or tool-side stop): wait for it to finish. If the user wants to stop early, they press Ctrl-C themselves; the finished rows are still written.
@@ -599,7 +599,7 @@ Write `"$OUT/report.json"` with this shape (omit what you don't have; arrays may
 
 `unchecked` gets one entry per site, not per row: blocked sites usually block every variant, so list them together (`"username": "billgates, bill.gates"`, `"url"` = the site's main URL).
 
-Write the template and the renderer, then render:
+Write the template and the renderer:
 
 ```bash
 OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
@@ -761,7 +761,7 @@ main.append(card('Methodology', el('dl', {},
 </body>
 </html>
 EOF
-$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/template.html" bb11214c600ec3cc9adf18c746d994def10f299d50e4d40435068895fe05bf5b
+$PY -c 'import hashlib,sys,pathlib; d=pathlib.Path(sys.argv[1]).read_bytes().replace(bytes([13,10]),bytes([10])); d=d[3:] if d[:3]==bytes([239,187,191]) else d; d=d.rstrip(bytes([10]))+bytes([10]); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else sys.argv[3])' "$WORK/template.html" bb11214c600ec3cc9adf18c746d994def10f299d50e4d40435068895fe05bf5b "error: $WORK/template.html was not written verbatim; write it again exactly as shown in this guide"
 
 cat > "$WORK/render_report.py" <<'EOF'
 """Render <OUT>/report.json into <OUT>/report.html using the report template. Python stdlib only."""
@@ -928,11 +928,15 @@ def main(argv=None):
 if __name__ == "__main__":
     sys.exit(main())
 EOF
-$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\r\n",b"\n"); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+" was not written verbatim; write it again exactly as shown in this guide")' "$WORK/render_report.py" 272ddd9bcde2904ab492322aca5444ce22571227b90c6638ce588b42e8e8d3c2
-$PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
+$PY -c 'import hashlib,sys,pathlib; d=pathlib.Path(sys.argv[1]).read_bytes().replace(bytes([13,10]),bytes([10])); d=d[3:] if d[:3]==bytes([239,187,191]) else d; d=d.rstrip(bytes([10]))+bytes([10]); sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else sys.argv[3])' "$WORK/render_report.py" 272ddd9bcde2904ab492322aca5444ce22571227b90c6638ce588b42e8e8d3c2 "error: $WORK/render_report.py was not written verbatim; write it again exactly as shown in this guide"
 ```
 
-If the check ran through `--proxy`, pass the same `--proxy` here; the photo download uses it.
+Only if both check lines printed nothing, render. If the check ran through `--proxy`, pass the same `--proxy` here; the photo download uses it.
+
+```bash
+OUT="osint/bill-gates"; WORK="$OUT/.work"; PY=$(cat "$WORK/py")
+$PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
+```
 
 Without Python: write `template.html` as above with your file tool, then create `report.html` from it yourself — replace `__REPORT_DATA__` with the `report.json` content, with every `<` written as `\u003c` (backslash, u, 0, 0, 3, c). Embed the photo as a `data:image/...;base64,` URI if you have a base64 tool (`base64 -w0`, PowerShell `[Convert]::ToBase64String`), else keep the link. Set `"method": {"bulk_check": "not run (no Python)", ...}` so the report says so.
 

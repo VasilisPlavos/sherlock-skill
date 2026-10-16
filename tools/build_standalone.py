@@ -9,9 +9,12 @@ import argparse, hashlib, os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLACEHOLDER = re.compile(r"^\{\{file:([^}]+)\}\}$")
 HEREDOC = re.compile(r"""^cat > "([^"]+)" <<'EOF'$""")
-VERIFY = ("""$PY -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read().replace(b"\\r\\n",b"\\n"); """
-          """sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else "error: "+sys.argv[1]+"""
-          """" was not written verbatim; write it again exactly as shown in this guide")' "{path}" {digest}\n""")
+# No double quotes inside the program (PowerShell 5.1 strips them from native arguments); tolerates CRLF,
+# a UTF-8 BOM and a missing or extra final newline, which file tools add or drop.
+VERIFY = ("$PY -c 'import hashlib,sys,pathlib; d=pathlib.Path(sys.argv[1]).read_bytes().replace(bytes([13,10]),bytes([10])); "
+          "d=d[3:] if d[:3]==bytes([239,187,191]) else d; d=d.rstrip(bytes([10]))+bytes([10]); "
+          "sys.exit(0 if hashlib.sha256(d).hexdigest()==sys.argv[2] else sys.argv[3])' "
+          "\"{path}\" {digest} \"error: {path} was not written verbatim; write it again exactly as shown in this guide\"\n")
 
 
 class BuildError(Exception):
@@ -25,8 +28,9 @@ def read_text(path):
 
 
 def verify_line(path, body):
-    """The guide line that checks the file a heredoc wrote is exactly `body` (CRLF tolerated)."""
-    return VERIFY.format(path=path, digest=hashlib.sha256(body.encode("utf-8")).hexdigest())
+    """The guide line that checks the file a heredoc wrote is exactly `body`, up to line endings and BOM."""
+    normalised = body.rstrip("\n") + "\n"
+    return VERIFY.format(path=path, digest=hashlib.sha256(normalised.encode("utf-8")).hexdigest())
 
 
 def expand(src_text, root):

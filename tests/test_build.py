@@ -52,15 +52,29 @@ class Fixture(unittest.TestCase):
         self.assertTrue(line.endswith("\n"))
 
     def run_verify(self, content):
-        code = build.verify_line("$WORK/a.py", "print('a')\n").split("'")[1]  # the program between the quotes
+        line = build.verify_line("$WORK/a.py", "print('a')\n")
+        code = line.split("'")[1]  # the program between the single quotes
+        message = re.findall(r'"([^"]*)"', line.split("'", 2)[2])[-1]  # the last quoted argument, if any
         path = os.path.join(self.root, "written.py")
         with open(path, "wb") as f:
             f.write(content)
-        return subprocess.run([sys.executable, "-c", code, path, A_HASH], capture_output=True, text=True)
+        extra = [message] if message.startswith("error:") else []
+        return subprocess.run([sys.executable, "-c", code, path, A_HASH, *extra], capture_output=True, text=True)
 
     def test_verify_line_accepts_crlf_copy(self):  # a Windows file tool may write CRLF
         r = self.run_verify(b"print('a')\r\n")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_verify_line_accepts_bom_copy(self):  # PowerShell 5.1 Out-File / Set-Content -Encoding utf8
+        r = self.run_verify(b"\xef\xbb\xbfprint('a')\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_verify_line_accepts_missing_final_newline(self):
+        r = self.run_verify(b"print('a')")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_verify_program_has_no_double_quotes(self):  # PowerShell 5.1 strips them from native arguments
+        self.assertNotIn('"', build.verify_line("$WORK/a.py", "print('a')\n").split("'")[1])
 
     def test_verify_line_rejects_a_changed_copy(self):
         r = self.run_verify(b"print('b')\n")
