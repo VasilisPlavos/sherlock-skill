@@ -1,8 +1,13 @@
+import contextlib
+import io
 import os
+import random
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from concurrent.futures import Future
 
 from helpers import load, read, script
 
@@ -54,6 +59,49 @@ class RandomLike(unittest.TestCase):
 
     def test_impossible(self):
         self.assertIsNone(check.random_like("bill", {"url": "https://x.test/{}", "regexCheck": r"^\d+$"}))
+
+
+def done(row):
+    f = Future()
+    f.set_result(row)
+    return f
+
+
+def row(site, status="AVAILABLE", username="u"):
+    return {"username": username, "site": site, "url": "", "status": status, "context": ""}
+
+
+class Track(unittest.TestCase):
+    def test_collects_all_and_reports_claimed(self):
+        jobs = [Future() for _ in range(300)]
+
+        def finish():
+            for i in random.sample(range(300), 300):
+                jobs[i].set_result(row(f"s{i}", "CLAIMED" if i % 10 == 0 else "AVAILABLE"))
+        threading.Thread(target=finish).start()
+        rows, seen = [], []
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            check.track(jobs, rows, on_claimed=seen.append)
+        self.assertEqual(len(rows), 300)
+        self.assertEqual(len(seen), 30)
+
+    def test_counts_calibration_but_does_not_collect_it(self):
+        err = io.StringIO()
+        rows = []
+        with contextlib.redirect_stderr(err):
+            check.track([done(row("a")), done(row("b"))], rows, [done(row("c")) for _ in range(3)])
+        self.assertEqual(len(rows), 2)
+        self.assertIn("progress 5/5 (100%)", err.getvalue())
+
+
+class CollectFinished(unittest.TestCase):
+    def test_adds_only_finished_jobs_not_yet_collected(self):
+        f1, f2, f3, f4 = done(row("a")), done(row("b")), Future(), Future()
+        f4.cancel()
+        rows = [f1.result()]
+        self.assertEqual(check.collect_finished([f1, f2, f3, f4], rows), 1)
+        self.assertIs(rows[-1], f2.result())
+        self.assertEqual(len(rows), 2)
 
 
 class Cli(unittest.TestCase):

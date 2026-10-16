@@ -1,9 +1,9 @@
 """Check usernames against Sherlock's site manifest. Python stdlib only."""
-import argparse, csv, functools, json, os, re, secrets, signal, string, sys, time
+import argparse, csv, functools, json, os, queue, re, secrets, signal, string, sys, time
 import urllib.error, urllib.parse, urllib.request
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, wait
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 MANIFEST = "https://data.sherlockproject.xyz"
 FALLBACK = "https://raw.githubusercontent.com/sherlock-project/sherlock/master/sherlock_project/resources/data.json"
@@ -186,14 +186,23 @@ def random_like(user, info, keep_first=False):
 
 def track(jobs, rows, calibration=(), on_claimed=None):
     """Collect results as they finish: potential hits live, progress + ETA every 5 s (stderr).
-    Progress counts calibration requests too. Waits in 1 s slices so Ctrl-C / SIGTERM interrupts promptly."""
+    Progress counts calibration requests too. Waits in 1 s slices so Ctrl-C / SIGTERM interrupts promptly.
+    Finished futures arrive through a queue: re-waiting on thousands of pending futures each time is O(n^2)."""
     job_set = set(jobs)
-    pending = job_set | set(calibration)
-    total, finished, hits, start, last = len(pending), 0, 0, time.monotonic(), 0.0
-    while pending:
-        done, pending = wait(pending, timeout=1, return_when=FIRST_COMPLETED)
+    everything = job_set | set(calibration)
+    total, finished, hits, start, last = len(everything), 0, 0, time.monotonic(), 0.0
+    finished_q = queue.Queue()
+    for f in everything:
+        f.add_done_callback(finished_q.put)
+    while finished < total:
+        try:
+            done = [finished_q.get(timeout=1)]
+        except queue.Empty:
+            done = []
         finished += len(done)
-        for job in done & job_set:
+        for job in done:
+            if job not in job_set or job.cancelled():
+                continue
             row = job.result()
             rows.append(row)
             if row["status"] == "CLAIMED":
@@ -202,13 +211,21 @@ def track(jobs, rows, calibration=(), on_claimed=None):
                 if on_claimed:
                     on_claimed(row)
         now = time.monotonic()
-        if now - last >= 5 or not pending:
+        if now - last >= 5 or finished == total:
             last, n = now, finished
             rate = n / max(now - start, 0.001)
             eta = int((total - n) / rate) if n else None
             print(f"progress {n}/{total} ({n * 100 // total}%)  {rate:.0f} req/s  "
                   f"ETA {'?' if eta is None else f'{eta // 60}m{eta % 60:02d}s'}  potential findings {hits}",
                   file=sys.stderr, flush=True)
+
+
+def collect_finished(jobs, rows):
+    """After an interrupt: add the jobs that finished but were not collected yet. Returns how many."""
+    have = {id(r) for r in rows}
+    new = [j.result() for j in jobs if j.done() and not j.cancelled() and id(j.result()) not in have]
+    rows.extend(new)
+    return len(new)
 
 
 def interrupt(*_):
@@ -313,6 +330,7 @@ def main():
     except KeyboardInterrupt:
         interrupted = True
         print("\ninterrupted: writing partial results (in-flight requests may take a few seconds)", file=sys.stderr)
+        collect_finished(jobs, rows)
     pool.shutdown(wait=not interrupted, cancel_futures=True)
 
     unverified = 0

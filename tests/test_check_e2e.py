@@ -126,7 +126,7 @@ class EndToEnd(unittest.TestCase):
 
     def test_log_is_utf8_and_complete(self):
         log = read(self.log)
-        self.assertIn("check.py 1.0.0:", log)
+        self.assertIn("check.py 1.1.0:", log)
         self.assertIn("Findings (after calibration):", log)
         self.assertRegex(log, r"(?m)^took \d+m\d{2}s$")
         self.assertIn("[+] alice", log)
