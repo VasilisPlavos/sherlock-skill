@@ -116,7 +116,7 @@ Write `<OUT>/report.json` as described in `references/report.md`, then:
 
     <PY> "<SKILL_DIR>/scripts/render_report.py" "<OUT>"
 
-It checks the JSON, fills in the run details (date, duration, bulk check time, sites, variants), embeds the photo and writes `<OUT>/report.html`. On `error: ...` fix the named field and rerun.
+It checks the JSON, fills in the run details (date, duration, bulk check time, sites, variants), embeds the photo and writes `<OUT>/report.html`. On `error: ...` fix the named field and rerun. If the check ran through `--proxy`, pass the same `--proxy` here; the photo download uses it.
 
 Tell the user the full path to `report.html` and summarize: high-confidence profiles, contacts found, what could not be verified, and how long it took (bulk check and total).
 

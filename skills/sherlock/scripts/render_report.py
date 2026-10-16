@@ -1,7 +1,7 @@
 """Render <OUT>/report.json into <OUT>/report.html using the report template. Python stdlib only."""
 import argparse, base64, csv, datetime, json, os, re, sys, time, urllib.request
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"
 DEFAULT_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "template.html")
 OBJECTS = ("subject", "method")
@@ -106,15 +106,17 @@ def fill_method(data, out_dir, now=None):
             method[key] = value
 
 
-def embed_photo(data):
-    """Embed the photo: CDN links (LinkedIn, Instagram, ...) expire, and a remote image pings its site on every open."""
+def embed_photo(data, proxy=None):
+    """Embed the photo: CDN links (LinkedIn, Instagram, ...) expire, and a remote image pings its site on every open.
+    With `proxy`, the download goes through it, like check.py's requests."""
     subject = data.get("subject") or {}
     photo = subject.get("photo")
     if not (isinstance(photo, str) and photo.startswith(("http://", "https://"))):
         return
     try:
         req = urllib.request.Request(photo, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=15) as r:
+        handlers = [urllib.request.ProxyHandler({"http": proxy, "https": proxy})] if proxy else []
+        with urllib.request.build_opener(*handlers).open(req, timeout=15) as r:
             kind, body = r.headers.get_content_type(), r.read(2_000_001)
         if kind in ("image/jpeg", "image/png", "image/gif", "image/webp") and len(body) <= 2_000_000:
             subject.update(photo=f"data:{kind};base64," + base64.b64encode(body).decode(), photo_source=photo)
@@ -137,13 +139,14 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="Render <OUT>/report.json into <OUT>/report.html.")
     p.add_argument("out", help="output folder, e.g. osint/bill-gates")
     p.add_argument("--template", default=DEFAULT_TEMPLATE, help="report template (default: the skill's assets)")
+    p.add_argument("--proxy", help="http(s) proxy for the photo download; use the same one as check.py")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = p.parse_args(argv)
     try:
         data = load_report(os.path.join(args.out, "report.json"))
         validate(data)
         fill_method(data, args.out)
-        embed_photo(data)
+        embed_photo(data, args.proxy)
         with open(args.template, encoding="utf-8-sig") as f:
             html = render(data, f.read())
         dest = os.path.join(args.out, "report.html")

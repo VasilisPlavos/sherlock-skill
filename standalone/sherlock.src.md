@@ -188,6 +188,8 @@ EOF
 $PY "$WORK/render_report.py" "$OUT" --template "$WORK/template.html"
 ```
 
+If the check ran through `--proxy`, pass the same `--proxy` here; the photo download uses it.
+
 Without Python: write `template.html` as above with your file tool, then create `report.html` from it yourself — replace `__REPORT_DATA__` with the `report.json` content, with every `<` written as `\u003c` (backslash, u, 0, 0, 3, c). Embed the photo as a `data:image/...;base64,` URI if you have a base64 tool (`base64 -w0`, PowerShell `[Convert]::ToBase64String`), else keep the link. Set `"method": {"bulk_check": "not run (no Python)", ...}` so the report says so.
 
 Tell the user the full path to `report.html` and summarize: high-confidence profiles, contacts found, what could not be verified, and how long it took (bulk check and total).
