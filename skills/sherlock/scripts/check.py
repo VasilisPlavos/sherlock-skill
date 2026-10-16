@@ -215,6 +215,15 @@ def interrupt(*_):
     raise KeyboardInterrupt
 
 
+def read_usernames(path):
+    """One username per line; UTF-8 (with or without BOM) or UTF-16 with BOM (PowerShell 5.1 '>')."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16").splitlines()
+    return raw.decode("utf-8-sig").splitlines()
+
+
 def init_workdir(out_dir):
     """Create <out_dir>/.work and record the run's start time once (used for the report's duration)."""
     work = os.path.join(out_dir, ".work")
@@ -248,16 +257,18 @@ def main():
     if args.init:
         print(init_workdir(args.init))
         return
-    if args.log:  # PowerShell's '>' would write UTF-16 and wrap stderr lines; write the log ourselves
-        log = open(args.log, "w", encoding="utf-8", buffering=1)
-        sys.stdout = sys.stderr = log
     users = list(args.usernames)
     if args.file:
-        with open(args.file, encoding="utf-8-sig") as f:
-            users += f.read().splitlines()
+        try:
+            users += read_usernames(args.file)
+        except UnicodeDecodeError:
+            p.error(f"{args.file} is not UTF-8; save it as UTF-8 (e.g. with your file tool, not Set-Content)")
     users = list(dict.fromkeys(u.strip().lstrip("@") for u in users if u.strip().lstrip("@")))
     if not users:
         p.error("no usernames given")
+    if args.log:  # PowerShell's '>' would write UTF-16 and wrap stderr lines; write the log ourselves
+        log = open(args.log, "w", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr = log
     out_dir = os.path.dirname(os.path.abspath(args.out))
     if os.path.isdir(os.path.join(out_dir, ".work")):  # skill/standalone layout: keep the start time for the report
         init_workdir(out_dir)

@@ -75,6 +75,29 @@ class Cli(unittest.TestCase):
     def test_no_usernames_is_an_error(self):
         self.assertNotEqual(run_check().returncode, 0)
 
+    def run_with_file(self, tmp, encoding):
+        users = os.path.join(tmp, "usernames.txt")
+        with open(users, "w", encoding=encoding) as f:
+            f.write("josé\nalice\n")
+        data = os.path.join(tmp, "data.json")
+        with open(data, "w", encoding="utf-8") as f:
+            f.write("{}")
+        log = os.path.join(tmp, "check.log")
+        r = run_check("--file", users, "--data", data, "--out", os.path.join(tmp, "results.csv"), "--log", log)
+        return r, log
+
+    def test_utf16_username_file_is_read(self):  # PowerShell 5.1 '>' writes UTF-16
+        with tempfile.TemporaryDirectory() as tmp:
+            r, log = self.run_with_file(tmp, "utf-16")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("2 usernames x 0 sites", read(log))
+
+    def test_non_utf8_username_file_fails_on_the_console(self):  # PowerShell 5.1 Set-Content writes cp1252
+        with tempfile.TemporaryDirectory() as tmp:
+            r, _ = self.run_with_file(tmp, "cp1252")
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("UTF-8", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

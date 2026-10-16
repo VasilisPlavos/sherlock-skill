@@ -29,4 +29,4 @@ On `error: ...` fix the named field and rerun.
 
 ## Without Python
 
-Create `<OUT>/report.html` yourself from `<SKILL_DIR>/assets/template.html`: replace `__REPORT_DATA__` with the `report.json` content, with every `<` written as `<` (backslash, u, 0, 0, 3, c). Embed the photo as a `data:image/...;base64,` URI if you have a base64 tool (`base64 -w0`, PowerShell `[Convert]::ToBase64String`), else keep the link. Fill `method` yourself, with `"bulk_check": "not run (no Python)"`.
+Create `<OUT>/report.html` yourself from `<SKILL_DIR>/assets/template.html`: replace `__REPORT_DATA__` with the `report.json` content, with every `<` written as `\u003c` (backslash, u, 0, 0, 3, c). Embed the photo as a `data:image/...;base64,` URI if you have a base64 tool (`base64 -w0`, PowerShell `[Convert]::ToBase64String`), else keep the link. Fill `method` yourself, with `"bulk_check": "not run (no Python)"`.
