@@ -86,10 +86,14 @@ EXPECTED = {
 class EndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # addClassCleanup runs even when setUpClass fails (tearDownClass would not)
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        cls.addClassCleanup(cls.server.server_close)
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.addClassCleanup(cls.server.shutdown)
         base = f"http://127.0.0.1:{cls.server.server_address[1]}"
         cls.tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.tmp.cleanup)
         cls.out = os.path.join(cls.tmp.name, "out dir")
         os.makedirs(os.path.join(cls.out, ".work"))
         data = os.path.join(cls.out, "data.json")
@@ -103,14 +107,12 @@ class EndToEnd(unittest.TestCase):
             [sys.executable, script("check"), *USERS, "--data", data, "--out", cls.csv, "--log", cls.log,
              "--timeout", "5"],
             env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+        if not os.path.exists(cls.csv):
+            log = read(cls.log) if os.path.exists(cls.log) else ""
+            raise AssertionError(f"check.py wrote no results.csv (exit {cls.proc.returncode}):\n"
+                                 f"{cls.proc.stderr}\n{log}")
         with open(cls.csv, encoding="utf-8", newline="") as f:
             cls.rows = {(r["username"], r["site"]): r for r in csv.DictReader(f)}
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.server.shutdown()
-        cls.server.server_close()
-        cls.tmp.cleanup()
 
     def test_exit_code(self):
         self.assertEqual(self.proc.returncode, 0, self.proc.stderr)

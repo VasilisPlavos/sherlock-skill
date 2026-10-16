@@ -97,6 +97,27 @@ class RenderCli(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(extract(self.html())["subject"]["name"], "Ζωή")
 
+    def test_utf16_report(self):  # PowerShell 5.1 Out-File / '>'
+        self.write_report({"subject": {"name": "José"}}, "utf-16")
+        r = self.run_render()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(extract(self.html())["subject"]["name"], "José")
+
+    def test_cp1252_report_fails_cleanly(self):  # PowerShell 5.1 Set-Content
+        self.write_report({"subject": {"name": "José"}}, "cp1252")
+        r = self.run_render()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("error:", r.stderr)
+        self.assertIn("UTF-8", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_null_method_fields_are_filled(self):
+        self.write_report({"method": {"date": None, "bulk_check": None}})
+        self.assertEqual(self.run_render().returncode, 0)
+        m = extract(self.html())["method"]
+        self.assertRegex(m["date"], r"^\d{4}-\d{2}-\d{2}$")
+        self.assertEqual(m["bulk_check"], "not run")
+
     def test_schema_errors(self):
         cases = [({"profiles": {"a": 1}}, "'profiles' must be a list"),
                  ({"profiles": [{"site": "X", "confidence": "maybe"}]}, "profiles[0].confidence"),

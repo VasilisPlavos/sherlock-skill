@@ -13,10 +13,20 @@ class ReportError(Exception):
     pass
 
 
+def decode(raw):
+    """UTF-8 (with or without BOM) or UTF-16 with BOM (PowerShell 5.1 Out-File / '>')."""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    return raw.decode("utf-8-sig")
+
+
 def load_report(path):
+    with open(path, "rb") as f:
+        raw = f.read()
     try:
-        with open(path, encoding="utf-8-sig") as f:
-            return json.load(f)
+        return json.loads(decode(raw))
+    except UnicodeDecodeError:
+        raise ReportError(f"{path} is not UTF-8; save it as UTF-8 (e.g. with your file tool, not Set-Content)")
     except json.JSONDecodeError as e:
         raise ReportError(f"invalid JSON in {path}: {e}")
 
@@ -53,9 +63,10 @@ def read_log(path):
             raw = f.read()
     except OSError:
         return None
-    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return raw.decode("utf-16", "replace")
-    return raw.decode("utf-8-sig", "replace")
+    try:
+        return decode(raw)
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", "replace")
 
 
 def bulk_check(out_dir, ran):
@@ -70,7 +81,7 @@ def csv_counts(out_dir):
     try:
         with open(os.path.join(out_dir, "results.csv"), encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
     return len({r.get("site") for r in rows}), len({r.get("username") for r in rows})
 
@@ -91,7 +102,7 @@ def fill_method(data, out_dir, now=None):
         auto["sites"], auto["variants"] = counts
     method = data.setdefault("method", {})
     for key, value in auto.items():
-        if str(method.get(key, "")).strip() == "":
+        if method.get(key) is None or str(method[key]).strip() == "":
             method[key] = value
 
 

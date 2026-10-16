@@ -66,7 +66,7 @@ Read progress with `tail -n 3 "<OUT>/check.log"` (PowerShell: `Get-Content "<OUT
 - `--nsfw` — include adult sites; only when the user asks.
 - `--proxy http://host:port` — route everything, site list included, through a proxy.
 - `--data data.json` — offline/pinned site list.
-- `--append` — add rows to an existing `--out` file (to finish a partial run with `--site`; give it its own `--log`).
+- `--append` — add rows to an existing `--out` file (to finish a partial run with the missing usernames; give it its own `--log`; see `references/troubleshooting.md`).
 
 | Status | Meaning |
 |---|---|

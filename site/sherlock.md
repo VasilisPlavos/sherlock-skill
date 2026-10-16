@@ -436,7 +436,7 @@ The log shows `[?]` potential findings as they arrive and, every 5 s, `progress 
 - `--nsfw` — include adult sites; only when the user asks.
 - `--proxy http://host:port` — route everything, site list included, through a proxy.
 - `--data data.json` — offline/pinned site list.
-- `--append` — add rows to an existing `--out` file instead of replacing it (to finish a partial run with `--site`).
+- `--append` — add rows to an existing `--out` file instead of replacing it (to finish a partial run with the missing usernames; see Troubleshooting).
 
 Statuses:
 
@@ -701,10 +701,20 @@ class ReportError(Exception):
     pass
 
 
+def decode(raw):
+    """UTF-8 (with or without BOM) or UTF-16 with BOM (PowerShell 5.1 Out-File / '>')."""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    return raw.decode("utf-8-sig")
+
+
 def load_report(path):
+    with open(path, "rb") as f:
+        raw = f.read()
     try:
-        with open(path, encoding="utf-8-sig") as f:
-            return json.load(f)
+        return json.loads(decode(raw))
+    except UnicodeDecodeError:
+        raise ReportError(f"{path} is not UTF-8; save it as UTF-8 (e.g. with your file tool, not Set-Content)")
     except json.JSONDecodeError as e:
         raise ReportError(f"invalid JSON in {path}: {e}")
 
@@ -741,9 +751,10 @@ def read_log(path):
             raw = f.read()
     except OSError:
         return None
-    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return raw.decode("utf-16", "replace")
-    return raw.decode("utf-8-sig", "replace")
+    try:
+        return decode(raw)
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", "replace")
 
 
 def bulk_check(out_dir, ran):
@@ -758,7 +769,7 @@ def csv_counts(out_dir):
     try:
         with open(os.path.join(out_dir, "results.csv"), encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
     return len({r.get("site") for r in rows}), len({r.get("username") for r in rows})
 
@@ -779,7 +790,7 @@ def fill_method(data, out_dir, now=None):
         auto["sites"], auto["variants"] = counts
     method = data.setdefault("method", {})
     for key, value in auto.items():
-        if str(method.get(key, "")).strip() == "":
+        if method.get(key) is None or str(method[key]).strip() == "":
             method[key] = value
 
 
@@ -857,7 +868,7 @@ OUT="osint/bill-gates"; rm -rf "$OUT/.work"
 | `$WORK` / `$OUT` empty, files written to `/` | The snippet ran without its first line; shell variables don't persist between tool calls. Re-run it with the restore line. |
 | `mkdir`, `<<'EOF'` or `command -v` fail | Not a bash shell (PowerShell/cmd). Use Git Bash/WSL, or translate — see the top of this guide. |
 | Windows: "Python was not found ... Microsoft Store" | A Store stub was picked up; re-run the detection loop in step 1, which tests by running. |
-| Check stopped early (`PARTIAL` in the log) | `results.csv` holds the finished rows. Finish only the missing sites with `--site X --site Y --append` (same `--out`), in the background. |
+| Check stopped early (`PARTIAL` in the log) | `results.csv` holds the finished rows. Usernames are checked one after another, so the missing usernames are those with no rows (or fewer rows than the rest). Put only those in `"$OUT/usernames-rest.txt"` and run `--file "$OUT/usernames-rest.txt" --out "$OUT/results.csv" --append > "$OUT/check-rest.log" 2>&1` in the background. The report reads only `check.log`, so set `method.bulk_check` yourself (both run times). |
 | Manifest download fails | Both URLs blocked/offline → pass a saved copy with `--data data.json`, or `--proxy`. |
 | Many `UNKNOWN` (timeouts) | Slow network: `--timeout 40`; lower `--workers`. |
 | Many `WAF` (403/429) | Rate-limited or bot-blocked: lower `--workers` (e.g. 5), wait, or use `--proxy`; recheck the important ones in a browser. |
